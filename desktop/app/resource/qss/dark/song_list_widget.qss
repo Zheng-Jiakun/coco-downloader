@@ -1,0 +1,161 @@
+/* Song List Widget - Dark Theme */
+
+QListWidget#songListWidget {
+    border: transparent;
+    outline: none;
+    background-color: rgb(32, 32, 32);
+    padding: 0px;
+}
+
+QListWidget#songListWidget::item:!alternate {
+    background-color: rgb(43, 43, 43);
+}
+
+QListWidget#songListWidget::item:alternate {
+    background: rgb(32, 32, 32);
+}
+
+/* Song Name Card */
+QWidget#songNameCard {
+    background: transparent;
+}
+
+/* Card States */
+QWidget[state='notSelected-leave'] {
+    background-color: transparent;
+}
+
+QWidget[state='notSelected-enter'] {
+    background-color: rgb(58, 58, 58);
+}
+
+QWidget[state='notSelected-pressed'] {
+    background-color: rgb(70, 70, 70);
+}
+
+QWidget[state='play-leave'] {
+    background-color: rgb(0, 153, 188);
+}
+
+QWidget[state='play-enter'] {
+    background-color: rgb(0, 107, 131);
+}
+
+QWidget[state='play-pressed'] {
+    background-color: rgb(0, 86, 105);
+}
+
+QWidget[state='selected-leave'] {
+    background-color: rgb(0, 153, 188);
+}
+
+QWidget[state='selected-enter'] {
+    background-color: rgb(0, 107, 131);
+}
+
+QWidget[state='selected-pressed'] {
+    background-color: rgb(0, 86, 105);
+}
+
+/* Labels */
+QLabel {
+    font-family: 'Segoe UI', 'Microsoft YaHei';
+    font-size: 15px;
+    background-color: transparent;
+}
+
+QLabel#songNameLabel {
+    font-size: 16px;
+}
+
+QLabel[state='notSelected-notPlay'] {
+    color: rgb(230, 230, 230);
+}
+
+QLabel[state='notSelected-play'] {
+    color: white;
+}
+
+QLabel[state='selected'] {
+    color: white;
+}
+
+/* CheckBox */
+QCheckBox {
+    background-color: transparent;
+    spacing: 0px;
+}
+
+QCheckBox::indicator {
+    width: 23px;
+    height: 23px;
+    background-color: transparent;
+}
+
+QCheckBox::indicator[state='selected'] {
+    border: 1px solid white;
+}
+
+QCheckBox::indicator[state='selected']:pressed {
+    border: 1px solid rgb(102, 166, 181);
+}
+
+QCheckBox::indicator[state='notSelected-notPlay'] {
+    border: 1px solid rgb(200, 200, 200);
+}
+
+QCheckBox::indicator[state='notSelected-notPlay']:pressed {
+    border: 1px solid rgb(150, 150, 150);
+}
+
+QCheckBox::indicator[state='notSelected-play'] {
+    border: 1px solid white;
+}
+
+QCheckBox::indicator[state='notSelected-play']:pressed {
+    border: 1px solid rgb(102, 166, 181);
+}
+
+QCheckBox::indicator:checked {
+    border-image: url(:/app/images/song_list_widget/CheckMark.png);
+}
+
+QCheckBox::indicator:checked:pressed {
+    border-image: url(:/app/images/song_list_widget/CheckMark_pressed.png);
+}
+
+/* Tool Buttons */
+QToolButton {
+    background-color: transparent;
+    border: none;
+    margin: 0;
+}
+
+QToolButton[state='notSelected-notPlay']:hover,
+QToolButton[state='notSelected-play']:hover {
+    background: rgb(70, 70, 70);
+}
+
+QToolButton[state='notSelected-notPlay']:pressed,
+QToolButton[state='notSelected-play']:pressed {
+    background-color: rgb(85, 85, 85);
+}
+
+QWidget[state='play-leave'] QToolButton[state='notSelected-play']:hover,
+QWidget[state='play-enter'] QToolButton[state='notSelected-play']:hover {
+    background-color: rgb(0, 97, 118);
+}
+
+QWidget[state='play-leave'] QToolButton[state='notSelected-play']:pressed,
+QWidget[state='play-enter'] QToolButton[state='notSelected-play']:pressed,
+QWidget[state='play-pressed'] QToolButton[state='notSelected-play']:pressed {
+    background-color: rgb(0, 86, 105);
+}
+
+QToolButton[state='selected']:hover {
+    background-color: rgb(0, 97, 118);
+}
+
+QToolButton[state='selected']:pressed {
+    background-color: rgb(0, 86, 105);
+}

@@ -1,0 +1,13 @@
+PyQt5
+PyQt5-Qt5
+PyQt5-sip
+PyQt-Fluent-Widgets[full]
+PyQt5-Frameless-Window
+beautifulsoup4
+pycryptodome
+nuitka
+ordered-set
+requests
+zstandard
+ruff
+colorthief==0.2.1

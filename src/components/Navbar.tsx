@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Github, Sun, Moon, Heart, ShieldCheck } from "lucide-react";
+import { Download, Github, Sun, Moon, Heart, ShieldCheck } from "lucide-react";
 import { useState, MouseEvent, useEffect } from "react";
 import { useTheme } from "next-themes";
 import DeveloperPanel from "./DeveloperPanel";
@@ -87,11 +87,25 @@ export function Navbar() {
   return (
     <>
       <nav className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-sky-100 dark:border-slate-800 z-50 px-4 md:px-8 flex items-center justify-between transition-colors duration-300">
-        <Link href="/" className="flex items-center gap-2 group">
-          <Image src="/images/cherry-logo.svg" alt="Logo" width={40} height={40} className="h-10 w-auto transition-transform" />
+        <Link href="/" className="group flex items-center gap-3">
+          <Image src="/images/coco-downloader.svg" alt="CoCo Downloader" width={40} height={40} className="h-10 w-10 transition-transform group-hover:scale-105" />
+          <span className="hidden text-xl font-bold tracking-normal text-[#005faa] dark:text-[#a3c9ff] sm:inline">
+            CoCo Downloader
+          </span>
         </Link>
 
         <div className="flex items-center gap-2">
+          <a
+            href="https://github.com/markcxx/coco-downloader/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#005faa] px-3 py-2 text-sm font-medium text-white transition-all duration-300 hover:bg-[#0078d4] dark:bg-[#a3c9ff] dark:text-[#001c39] dark:hover:bg-[#d3e3ff]"
+            title="下载客户端"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">下载客户端</span>
+          </a>
+
           <button
             onClick={() => setShowDonation(true)}
             className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-full transition-all duration-300 cursor-pointer"
@@ -111,13 +125,13 @@ export function Navbar() {
 
           <button
             onClick={toggleTheme}
-            className="p-2 text-slate-400 dark:text-slate-500 hover:text-sky-500 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-full transition-all duration-300 cursor-pointer"
+            className="cursor-pointer rounded-full p-2 text-slate-500 transition-all duration-300 hover:bg-sky-50 hover:text-sky-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-sky-300"
             aria-label="Toggle theme"
           >
             {currentTheme === 'dark' ? (
-              <Moon className="w-5 h-5" />
-            ) : (
               <Sun className="w-5 h-5" />
+            ) : (
+              <Moon className="w-5 h-5" />
             )}
           </button>
           <button

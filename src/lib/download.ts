@@ -84,7 +84,7 @@ export function buildMusicLibraryPaths(libraryRoot: string, musicItem: MusicItem
 }
 
 
-async function downloadBinary(url: string, targetPath: string) {
+async function downloadBinary(url: string, targetPath: string, audioOnly = false) {
   const response = await axios.get(url, {
     responseType: 'stream',
     timeout: 30000,
@@ -97,7 +97,13 @@ async function downloadBinary(url: string, targetPath: string) {
   });
 
   if (response.status < 200 || response.status >= 300) {
+    response.data.destroy();
     throw new Error(`Failed to download asset: ${response.status}`);
+  }
+
+  if (audioOnly && /^(application\/json|text\/)/i.test(String(response.headers['content-type'] || ''))) {
+    response.data.destroy();
+    throw new Error('渠道未返回有效音频，请重试或切换渠道');
   }
 
   await pipeline(response.data, createWriteStream(targetPath));
@@ -161,7 +167,7 @@ export async function saveMusicToLibrary(input: SaveMusicInput): Promise<SavedMu
   const tempAudioPath = join(tempDir, 'source');
 
   try {
-    const contentType = await downloadBinary(input.sourceUrl, tempAudioPath);
+    const contentType = await downloadBinary(input.sourceUrl, tempAudioPath, true);
     const prepared = await prepareAudioFile(
       tempAudioPath,
       getAudioExtension(input.playInfo, contentType),

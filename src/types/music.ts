@@ -19,6 +19,6 @@ export interface PlayInfo {
 
 export interface MusicProvider {
   name: string;
-  search(query: string): Promise<MusicItem[]>;
+  search(query: string, limit?: number, offset?: number): Promise<MusicItem[]>;
   getPlayInfo(id: string, extra?: unknown): Promise<PlayInfo>;
 }

@@ -15,13 +15,14 @@ const { GET, POST } = require('../src/app/api/download/route.ts');
 const { NextRequest } = require('next/server');
 
 const exec = promisify(execFile);
-const musicItem = { id: 'test', title: '测试歌曲', artist: '测试歌手', album: '测试专辑', provider: 'gequbao' };
+const musicItem = { id: 'test', title: '测试歌曲', artist: '测试歌手', album: '测试专辑', provider: 'netease' };
 let root;
 let server;
 let baseUrl;
 let originalGetPlayInfo;
 let originalEnv;
 const assets = {};
+const providerCalls = [];
 
 async function probe(path) {
   const { stdout } = await exec('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', path]);
@@ -54,7 +55,9 @@ before(async () => {
   assets['mislabelled.mp3'] = assets['source.aac'];
   assets['broken.aac'] = Buffer.from('invalid audio');
   assets['bad-cover.jpg'] = Buffer.from('invalid cover');
-  const contentTypes = { aac: 'audio/aac', m4a: 'audio/mp4', mp3: 'audio/mpeg', flac: 'audio/flac' };
+  assets['error.json'] = Buffer.from('{"error":"provider unavailable"}');
+  assets['error.html'] = Buffer.from('<html>provider unavailable</html>');
+  const contentTypes = { aac: 'audio/aac', m4a: 'audio/mp4', mp3: 'audio/mpeg', flac: 'audio/flac', json: 'application/json', html: 'text/html' };
   server = createServer((request, response) => {
     const name = request.url.slice(1);
     const data = assets[name];
@@ -68,9 +71,14 @@ before(async () => {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const provider = getProvider('gequbao');
+  const provider = getProvider(musicItem.provider);
+  assert.equal(provider.name, musicItem.provider);
   originalGetPlayInfo = provider.getPlayInfo;
-  provider.getPlayInfo = async (id) => playInfo(id);
+  provider.getPlayInfo = async (id, extra) => {
+    providerCalls.push({ id, extra });
+    if (id === 'provider-error') throw new Error('测试渠道暂不可用');
+    return playInfo(id);
+  };
   originalEnv = { ENABLE_DOWNLOAD: process.env.ENABLE_DOWNLOAD, SAVE_TO_NAS: process.env.SAVE_TO_NAS, MUSIC_LIBRARY_DIR: process.env.MUSIC_LIBRARY_DIR };
   process.env.ENABLE_DOWNLOAD = '1';
   process.env.SAVE_TO_NAS = '1';
@@ -78,7 +86,7 @@ before(async () => {
 });
 
 after(async () => {
-  if (originalGetPlayInfo) getProvider('gequbao').getPlayInfo = originalGetPlayInfo;
+  if (originalGetPlayInfo) getProvider(musicItem.provider).getPlayInfo = originalGetPlayInfo;
   for (const [key, value] of Object.entries(originalEnv || {})) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -201,4 +209,94 @@ test('conversion-disabled browser download does not write to configured NAS', as
   const response = await browserDownload('source.aac', false, 'browser-only.mp3');
   await response.arrayBuffer();
   assert.deepEqual(await readdir(join(root, 'library')), before);
+});
+
+for (const method of ['GET', 'POST']) {
+  for (const saveToNas of [false, true]) {
+    test(`${method} forwards provider extras with conversion and saveToNas=${saveToNas}`, async () => {
+      const extra = { quality: 'high', session: 'test-session' };
+      const payload = { ...musicItem, id: 'source.m4a', extra, convertAacToMp3: true, saveToNas };
+      const query = new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)]));
+      const request = method === 'GET'
+        ? new NextRequest(`http://localhost/api/download?${query}`)
+        : new NextRequest('http://localhost/api/download', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await (method === 'GET' ? GET : POST)(request);
+      assert.equal(response.status, 200);
+      assert.deepEqual(providerCalls.at(-1), { id: 'source.m4a', extra });
+      if (saveToNas) {
+        const { saved } = await response.json();
+        assert.equal((await probe(saved.audioPath)).streams[0].codec_name, 'mp3');
+        assert.equal(await readFile(saved.lyricsPath, 'utf8'), '[00:00.00]测试歌词');
+      } else {
+        assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+        await response.arrayBuffer();
+      }
+    });
+  }
+}
+
+test('malformed query extras are ignored without breaking browser downloads', async () => {
+  const response = await GET(new NextRequest('http://localhost/api/download?id=source.mp3&saveToNas=false&extra=invalid'));
+  assert.equal(response.status, 200);
+  assert.equal(providerCalls.at(-1).extra, undefined);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), assets['source.mp3']);
+});
+
+test('upstream default download enablement and explicit disablement are preserved', async () => {
+  const previous = process.env.ENABLE_DOWNLOAD;
+  try {
+    delete process.env.ENABLE_DOWNLOAD;
+    const enabled = await browserDownload('source.mp3', false);
+    assert.equal(enabled.status, 200);
+    await enabled.arrayBuffer();
+    process.env.ENABLE_DOWNLOAD = '0';
+    const disabled = await browserDownload('source.mp3', false);
+    assert.equal(disabled.status, 503);
+    assert.equal((await disabled.json()).error, 'Download disabled');
+  } finally {
+    if (previous === undefined) delete process.env.ENABLE_DOWNLOAD;
+    else process.env.ENABLE_DOWNLOAD = previous;
+  }
+});
+
+for (const name of ['error.json', 'error.html']) {
+  test(`upstream non-audio protection rejects ${name} for browser and NAS`, async () => {
+    const previous = await readdir(join(root, 'library'));
+    for (const saveToNas of [false, true]) {
+      const response = await POST(new NextRequest('http://localhost/api/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...musicItem, id: name, title: '不可保存', saveToNas, convertAacToMp3: false }),
+      }));
+      assert.equal(response.status, 502);
+      assert.match((await response.json()).error, /有效音频/);
+    }
+    assert.deepEqual(await readdir(join(root, 'library')), previous);
+  });
+}
+
+test('provider errors retain upstream response messages and status', async () => {
+  const response = await browserDownload('provider-error', false);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error, '测试渠道暂不可用');
+});
+
+test('QQMP3 fallback validation retains lyrics, cover and actual format', async (context) => {
+  const axios = require('axios');
+  const { QQMp3Provider } = require('../src/lib/providers/impl/qqmp3.ts');
+  const calls = [];
+  let destroyed = 0;
+  context.mock.method(axios, 'get', async (url) => {
+    calls.push(url);
+    if (url.endsWith('/api/kw.php')) {
+      return { data: { code: 200, data: { url: url.includes('www.qqmp3.vip') ? 'https://example.invalid/error' : 'https://example.invalid/music.flac', pic: 'https://example.invalid/cover.jpg', lrc: '[00:00.00]测试歌词' } } };
+    }
+    return { data: { destroy() { destroyed++; } }, headers: { 'content-type': url.endsWith('.flac') ? 'audio/flac' : 'application/json' } };
+  });
+  const info = await new QQMp3Provider().getPlayInfo('test');
+  assert.equal(info.type, 'flac');
+  assert.equal(info.lyrics, '[00:00.00]测试歌词');
+  assert.equal(info.cover, 'https://example.invalid/cover.jpg');
+  assert.equal(info.url, 'https://example.invalid/music.flac');
+  assert(calls.includes('https://bb.qqmp3.vip/api/kw.php'));
+  assert.equal(destroyed, 2);
 });

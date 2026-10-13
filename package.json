@@ -1,6 +1,6 @@
 {
   "name": "coco-downloader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,6 @@
     "test:download": "node --require ./tests/register.cjs --test tests/download.test.cjs"
   },
   "dependencies": {
-    "@lobehub/ui": "^4.20.1",
     "antd": "^6.2.0",
     "antd-style": "^4.1.0",
     "axios": "^1.13.2",

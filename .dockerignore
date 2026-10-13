@@ -19,3 +19,25 @@ docker-compose.override.yml
 docker-compose.override.yaml
 compose.override.yml
 compose.override.yaml
+
+# Desktop application (Python/PyQt)
+desktop/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db

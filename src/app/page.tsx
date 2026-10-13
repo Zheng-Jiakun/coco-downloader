@@ -2,14 +2,157 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Search, Loader2, Play, Pause, Download, Check, Music, Trash2, Flame, Zap, ShieldCheck, Headphones, ExternalLink } from "lucide-react";
+import { Search, Loader2, Play, Pause, Download, Check, Music, Trash2, ExternalLink, ChevronDown, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { MusicItem } from "@/types/music";
 import { PlayerBar } from "@/components/PlayerBar";
 import { DownloadDrawer } from "@/components/DownloadDrawer";
+import { QualitySelectModal } from "@/components/QualitySelectModal";
+import { FullscreenPlayerDrawer } from "@/components/FullscreenPlayerDrawer";
 import { DownloadTask } from "@/types/download";
 import axios from "axios";
+import { message } from "antd";
+
+async function fetchJson(url: string) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(35000) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || '渠道请求失败，请重试或切换渠道');
+  return data;
+}
+
+function notifyError(error: unknown, fallback: string, key = 'request-error') {
+  const content = error instanceof Error && error.name !== 'TimeoutError' ? error.message : fallback;
+  void message.error({ key, content, duration: 6 });
+}
+
+type QualityOption = {
+  value: string;
+  label: string;
+  quality: string;
+  format: string;
+};
+
+type ProviderExtra = {
+  selectedQuality?: string;
+  selectedFormat?: string;
+  selectedLevel?: string;
+  level?: string;
+  selectedParser?: string;
+  qualityOptions?: QualityOption[];
+};
+
+type QualityModalState = {
+  mode: "single" | "batch";
+  items: MusicItem[];
+  qualityItemCount: number;
+  optionKind: "quality" | "downloadSource";
+};
+
+type LyricLine = {
+  time: number;
+  text: string;
+};
+
+function buildQualityValue(extra?: ProviderExtra) {
+  if (extra?.selectedParser) {
+    return extra.selectedParser;
+  }
+  if (extra?.selectedLevel) {
+    return extra.selectedLevel;
+  }
+  if (extra?.level) {
+    return extra.level;
+  }
+  if (extra?.selectedQuality && extra?.selectedFormat) {
+    return `${extra.selectedQuality}:${extra.selectedFormat}`;
+  }
+  return extra?.qualityOptions?.[0]?.value || "";
+}
+
+function buildDownloadFilename(item: MusicItem) {
+  const cleanArtist = item.artist.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Artist';
+  const cleanTitle = item.title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Title';
+  const extra = getProviderExtra(item);
+  const extension = extra?.selectedFormat?.toLowerCase() || "mp3";
+  return `${cleanArtist} - ${cleanTitle}.${extension}`;
+}
+
+function collectQualityOptions(items: MusicItem[]) {
+  const map = new Map<string, QualityOption>();
+  for (const item of items) {
+    const options = getProviderExtra(item)?.qualityOptions || [];
+    for (const option of options) {
+      if (!map.has(option.value)) {
+        map.set(option.value, option);
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => {
+    const aQuality = Number(a.quality);
+    const bQuality = Number(b.quality);
+    if (!Number.isFinite(aQuality) || !Number.isFinite(bQuality)) return 0;
+    return bQuality - aQuality;
+  });
+}
+
+function applyQualityChoice(item: MusicItem, value: string) {
+  const extra = getProviderExtra(item);
+  if (!extra) return item;
+  const match =
+    extra.qualityOptions?.find((option) => option.value === value) ||
+    extra.qualityOptions?.[0];
+  if (!match) return item;
+  if (item.provider === "netease") {
+    return {
+      ...item,
+      extra: {
+        ...(item.extra as Record<string, unknown>),
+        selectedLevel: match.value,
+        level: match.value,
+      },
+    };
+  }
+  if (item.provider === "qq" || item.provider === "kugou") {
+    return {
+      ...item,
+      extra: {
+        ...(item.extra as Record<string, unknown>),
+        selectedParser: match.value,
+        selectedFormat: match.format,
+      },
+    };
+  }
+  if (item.provider !== "joox") return item;
+  return {
+    ...item,
+    extra: {
+      ...(item.extra as Record<string, unknown>),
+      selectedQuality: match.quality,
+      selectedFormat: match.format,
+    },
+  };
+}
+
+function getQualityItems(items: MusicItem[]) {
+  return items.filter((item) => (getProviderExtra(item)?.qualityOptions || []).length > 0);
+}
+
+function buildUrlRequest(item: MusicItem) {
+  const params = new URLSearchParams({
+    id: item.id,
+    provider: item.provider || "netease",
+  });
+  if (item.extra !== undefined) {
+    params.set("extra", JSON.stringify(item.extra));
+  }
+  return `/api/url?${params.toString()}`;
+}
+
+function getProviderExtra(item: MusicItem): ProviderExtra | undefined {
+  if (!item.extra || typeof item.extra !== "object") return undefined;
+  return item.extra as ProviderExtra;
+}
 
 const SourceLinkButton = ({ item }: { item: MusicItem }) => {
   const [loading, setLoading] = useState(false);
@@ -20,16 +163,15 @@ const SourceLinkButton = ({ item }: { item: MusicItem }) => {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/url?id=${item.id}&provider=${item.provider || 'gequbao'}`);
-      const data = await res.json();
+      const data = await fetchJson(buildUrlRequest(item));
       if (data.url) {
         window.open(data.url, '_blank');
       } else {
-        alert('无法获取源链接');
+        void message.error(data.error || '无法获取源链接');
       }
     } catch (error) {
       console.error(error);
-      alert('获取链接失败');
+      notifyError(error, '获取链接失败');
     } finally {
       setLoading(false);
     }
@@ -38,7 +180,7 @@ const SourceLinkButton = ({ item }: { item: MusicItem }) => {
   return (
     <button
       onClick={handleClick}
-      className="p-2 text-slate-400 dark:text-slate-500 hover:text-sky-500 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+      className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa]"
       title="打开源文件链接"
     >
       {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ExternalLink className="w-5 h-5" />}
@@ -47,10 +189,27 @@ const SourceLinkButton = ({ item }: { item: MusicItem }) => {
 };
 
 type PlayMode = "order" | "shuffle" | "single";
+const SEARCH_PAGE_SIZE = 20;
+
+const PROVIDER_OPTIONS = [
+  { id: "netease", name: "云音乐" },
+  { id: "qq", name: "QQ音乐（VKeys）" },
+  { id: "kugou", name: "酷狗音乐（90svip）" },
+  { id: "gequhai", name: "歌曲海" },
+  { id: "bodian", name: "波点" },
+  { id: "qqmp3", name: "QQMP3" },
+  { id: "migu", name: "咪咕" },
+  { id: "livepoo", name: "力音" },
+  { id: "jianbin-netease", name: "煎饼-1" },
+  { id: "jianbin-qq", name: "煎饼-2" },
+  { id: "jianbin-kugou", name: "煎饼-3" },
+  { id: "jianbin-kuwo", name: "煎饼-4" },
+];
 
 export default function Home() {
   const [query, setQuery] = useState("");
-  const [provider, setProvider] = useState("all");
+  const [provider, setProvider] = useState("netease");
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [results, setResults] = useState<MusicItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -64,6 +223,8 @@ export default function Home() {
   const [playMode, setPlayMode] = useState<PlayMode>("order");
   const [shuffleOrder, setShuffleOrder] = useState<string[]>([]);
   const [shuffleIndex, setShuffleIndex] = useState(-1);
+  const handlePlayRef = useRef<(item: MusicItem) => void>(() => undefined);
+  const getNextIndexRef = useRef<() => number>(() => -1);
 
   const [searched, setSearched] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -76,11 +237,24 @@ export default function Home() {
   const [nasSaveSupported, setNasSaveSupported] = useState(false);
   const [saveToNasEnabled, setSaveToNasEnabled] = useState(false);
   const [convertAacToMp3, setConvertAacToMp3] = useState(true);
+  const [resolvingMusicId, setResolvingMusicId] = useState<string | null>(null);
+  const [qualityModal, setQualityModal] = useState<QualityModalState | null>(null);
+  const [selectedQualityValue, setSelectedQualityValue] = useState("");
+  const [playerDrawerOpen, setPlayerDrawerOpen] = useState(false);
+  const [playerDrawerSession, setPlayerDrawerSession] = useState(0);
+  const [lyricLines, setLyricLines] = useState<LyricLine[]>([]);
+  const [lyricLoading, setLyricLoading] = useState(false);
+  const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const activeProviderName = PROVIDER_OPTIONS.find((option) => option.id === provider)?.name || "选择渠道";
+
+  const openPlayerDrawer = () => {
+    setPlayerDrawerSession((session) => session + 1);
+    setPlayerDrawerOpen(true);
+  };
 
   const openSourceUrl = async (item: MusicItem) => {
-    const res = await fetch(
-      `/api/url?id=${encodeURIComponent(item.id)}&provider=${encodeURIComponent(item.provider || "gequbao")}`
-    );
+    const res = await fetch(buildUrlRequest(item));
     const data = await res.json();
     if (data?.url) {
       window.open(data.url, "_blank");
@@ -98,6 +272,19 @@ export default function Home() {
     return next;
   };
 
+  const fetchSearchPage = async (offset: number) => {
+    const params = new URLSearchParams({
+      q: query.trim(),
+      provider,
+      limit: String(SEARCH_PAGE_SIZE),
+      offset: String(offset),
+    });
+    const data = await fetchJson(`/api/search?${params.toString()}`);
+    const items = Array.isArray(data.items) ? data.items : [];
+    setHasMoreResults(items.length === SEARCH_PAGE_SIZE);
+    return items as MusicItem[];
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
@@ -106,15 +293,32 @@ export default function Home() {
     setSearched(true);
     setResults([]);
     setSelectedIds(new Set());
+    setHasMoreResults(false);
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&provider=${provider}`);
-      const data = await res.json();
-      setResults(data.items || []);
+      const items = await fetchSearchPage(0);
+      setResults(items);
+      if (!items.length) void message.warning("未找到歌曲，或第三方渠道暂不可用，请更换关键词或渠道");
     } catch (err) {
       console.error(err);
+      notifyError(err, "搜索失败，请重试或切换渠道");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (loadingMore || loading || !query.trim()) return;
+
+    setLoadingMore(true);
+    try {
+      const items = await fetchSearchPage(results.length);
+      setResults((prev) => [...prev, ...items]);
+    } catch (err) {
+      console.error(err);
+      notifyError(err, "搜索失败，请重试或切换渠道");
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -134,88 +338,50 @@ export default function Home() {
     }
   };
 
-  const getNextIndexById = (id: string) => {
-    if (playMode === "shuffle") {
-      const order = shuffleOrder.length > 0 ? shuffleOrder : results.map(r => r.id);
-      const orderIndex = order.indexOf(id);
-      if (orderIndex >= 0 && orderIndex < order.length - 1) {
-        const nextId = order[orderIndex + 1];
-        return results.findIndex(r => r.id === nextId);
-      }
-      return -1;
-    }
-    const index = results.findIndex(r => r.id === id);
-    if (index >= 0 && index < results.length - 1) {
-      return index + 1;
-    }
-    return -1;
-  };
-
+  const playRequestRef = useRef(0);
   const handlePlay = async (item: MusicItem) => {
-    if (activeMusic?.id === item.id) {
-      if (playing) {
-        audioRef.current?.pause();
-        setPlaying(false);
-      } else {
-        audioRef.current?.play();
-        setPlaying(true);
-      }
-      return;
-    }
-
+    if (resolvingMusicId === item.id) return;
+    const requestId = ++playRequestRef.current;
+    const audio = audioRef.current;
+    if (!audio) return;
     try {
-      if (audioRef.current) {
-        audioRef.current.pause();
+      if (activeMusic?.id === item.id && activeMusic.provider === item.provider && audio.src) {
+        if (playing) { audio.pause(); setPlaying(false); }
+        else { await audio.play(); setPlaying(true); }
+        return;
       }
-
+      audio.pause();
       setActiveMusic(item);
       syncShuffleIndex(item.id);
-      setPlaying(false); // Wait for load
+      setPlaying(false);
       setCurrentTime(0);
-
-      const res = await fetch(`/api/url?id=${item.id}&provider=${item.provider || 'gequbao'}`);
-      const data = await res.json();
-
-      if (data.url && audioRef.current) {
-        // 如果返回了封面，更新当前播放歌曲的封面
-        if (data.cover) {
-          setActiveMusic(prev => prev ? { ...prev, cover: data.cover } : item);
-        }
-
-        audioRef.current.src = data.url;
-        audioRef.current.load();
-        audioRef.current.play()
-          .then(() => setPlaying(true))
-          .catch(e => {
-            console.error("Play failed", e);
-            const nextIndex = getNextIndexById(item.id);
-            if (nextIndex >= 0) {
-              handlePlay(results[nextIndex]);
-            } else {
-              setActiveMusic(null);
-              setPlaying(false);
-            }
-          });
-      } else {
-        const nextIndex = getNextIndexById(item.id);
-        if (nextIndex >= 0) {
-          handlePlay(results[nextIndex]);
-        } else {
-          setActiveMusic(null);
-          setPlaying(false);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      const nextIndex = getNextIndexById(item.id);
-      if (nextIndex >= 0) {
-        handlePlay(results[nextIndex]);
-      } else {
-        setActiveMusic(null);
-        setPlaying(false);
-      }
+      setResolvingMusicId(item.id);
+      const preview = { ...item, extra: { ...(item.extra as Record<string, unknown> || {}), usage: 'playback' } };
+      const data = await fetchJson(buildUrlRequest(preview));
+      if (requestId !== playRequestRef.current) return;
+      if (!data.url) throw new Error(data.error || '渠道未返回播放链接');
+      if (data.cover) setActiveMusic({ ...item, cover: data.cover });
+      audio.src = data.url;
+      audio.load();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          audio.play(),
+          new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('音频加载超时，请重试或切换渠道')), 35000); }),
+        ]);
+      } finally { clearTimeout(timeout); }
+      if (requestId === playRequestRef.current) setPlaying(true);
+    } catch (error) {
+      if (requestId !== playRequestRef.current) return;
+      audio.pause();
+      setActiveMusic(null);
+      setPlaying(false);
+      notifyError(error, '播放失败，请重试或切换渠道', 'playback');
+    } finally {
+      if (requestId === playRequestRef.current) setResolvingMusicId(null);
     }
   };
+  handlePlayRef.current = handlePlay;
 
   const handleSeek = (time: number) => {
     if (audioRef.current) {
@@ -250,6 +416,53 @@ export default function Home() {
   }, [volume]);
 
   useEffect(() => {
+    if (!activeMusic) {
+      setLyricLines([]);
+      setLyricLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLyricLoading(true);
+    setLyricLines([]);
+
+    const params = new URLSearchParams({
+      id: activeMusic.id,
+      provider: activeMusic.provider || "netease",
+    });
+    if (activeMusic.extra !== undefined) {
+      params.set("extra", JSON.stringify(activeMusic.extra));
+    }
+
+    fetch(`/api/lyric?${params.toString()}`)
+      .then(async (res) => { if (!res.ok) throw new Error("歌词加载失败"); return res.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        const lines = Array.isArray(data?.lines) ? data.lines : [];
+        setLyricLines(
+          lines.filter(
+            (line: LyricLine) =>
+              typeof line.time === "number" && typeof line.text === "string" && line.text.trim()
+          )
+        );
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Lyric load failed", error);
+          void message.warning({ key: "lyrics", content: "歌词加载失败，不影响歌曲播放" });
+          setLyricLines([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLyricLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMusic]);
+
+  useEffect(() => {
     const env = (window as Window & { __COCO_ENV?: { ENABLE_DOWNLOAD?: string; SAVE_TO_NAS_SUPPORTED?: string } }).__COCO_ENV;
     if (env?.ENABLE_DOWNLOAD === "0") {
       setDownloadEnabled(false);
@@ -267,10 +480,6 @@ export default function Home() {
       // Keep the default when browser storage is unavailable.
     }
   }, []);
-
-  const listGridTemplate = downloadEnabled
-    ? "grid-cols-[40px_1fr_40px] md:grid-cols-[50px_2fr_1.5fr_120px]"
-    : "grid-cols-[1fr_40px] md:grid-cols-[2fr_1.5fr_80px]";
 
   const executeDownload = async (task: DownloadTask) => {
     try {
@@ -290,7 +499,8 @@ export default function Home() {
       if (task.saveToNas) {
         const response = await axios.post(`/api/download`, {
           id: task.musicItem.id,
-          provider: task.musicItem.provider || 'gequbao',
+          provider: task.musicItem.provider || 'netease',
+          extra: task.musicItem.extra,
           title: task.musicItem.title,
           artist: task.musicItem.artist,
           album: task.musicItem.album,
@@ -314,8 +524,9 @@ export default function Home() {
       const response = await axios.get(`/api/download`, {
         params: {
           id: task.musicItem.id,
-          provider: task.musicItem.provider || 'gequbao',
+          provider: task.musicItem.provider || 'netease',
           filename: task.fileName,
+          extra: task.musicItem.extra ? JSON.stringify(task.musicItem.extra) : undefined,
           title: task.musicItem.title,
           artist: task.musicItem.artist,
           album: task.musicItem.album,
@@ -352,7 +563,7 @@ export default function Home() {
 
     } catch (err: unknown) {
       console.error(err);
-      let errorMessage = err instanceof Error ? err.message : 'Download failed';
+      let errorMessage = err instanceof Error ? err.message : '下载失败';
       if (axios.isAxiosError(err)) {
         try {
           const data = err.response?.data instanceof Blob
@@ -363,16 +574,11 @@ export default function Home() {
           // Retain the request error if the response is not JSON.
         }
       }
+      void message.error({ key: `download-${task.id}`, content: `${task.musicItem.title}：${errorMessage}`, duration: 6 });
       setDownloadTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, status: 'error', error: errorMessage } : t
       ));
     }
-  };
-
-  const makeSafeDownloadName = (artist: string, title: string) => {
-    const cleanArtist = artist.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Artist';
-    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Title';
-    return `${cleanArtist} - ${cleanTitle}.mp3`;
   };
 
   const toggleNasSave = () => {
@@ -390,26 +596,25 @@ export default function Home() {
     }
   };
 
-  const downloadOne = async (item: MusicItem) => {
+  const createTask = (item: MusicItem): DownloadTask => {
     const taskId = `${item.id}-${Date.now()}`;
-    const filename = makeSafeDownloadName(item.artist, item.title);
-
-    // Add initial task
-    const newTask: DownloadTask = {
+    return {
       id: taskId,
       musicItem: item,
       status: 'pending',
       progress: 0,
-      fileName: filename,
+      fileName: buildDownloadFilename(item),
       convertAacToMp3,
       saveToNas: nasSaveSupported && saveToNasEnabled,
       startTime: Date.now()
     };
+  };
+
+  const startSingleDownload = async (item: MusicItem) => {
+    const newTask = createTask(item);
 
     setDownloadTasks(prev => [newTask, ...prev]);
     setIsDrawerOpen(true);
-
-    // Execute immediately for single download
     await executeDownload(newTask);
   };
 
@@ -431,34 +636,36 @@ export default function Home() {
     }
   };
 
-  const handleBatchDownload = async () => {
-    const items = results.filter(r => selectedIds.has(r.id));
-    if (items.length === 0) return;
+  const openQualityModal = (items: MusicItem[], mode: "single" | "batch") => {
+    const qualityItems = getQualityItems(items);
+    if (qualityItems.length === 0) return false;
+    const options = collectQualityOptions(qualityItems);
+    if (options.length === 0) return false;
+    const optionKind = qualityItems.some((item) => item.provider === "qq" || item.provider === "kugou") ? "downloadSource" : "quality";
+    setSelectedQualityValue(buildQualityValue(getProviderExtra(qualityItems[0])) || options[0].value);
+    setQualityModal({
+      mode,
+      items,
+      qualityItemCount: qualityItems.length,
+      optionKind,
+    });
+    return true;
+  };
 
+  const startBatchDownload = async (items: MusicItem[]) => {
     if (items.length > 5) {
       if (!confirm(`即将下载 ${items.length} 首歌曲，可能需要一些时间，是否继续？`)) return;
     }
 
-    // 1. Create all tasks immediately
-    const newTasks: DownloadTask[] = items.map(item => {
-      return {
-        id: `${item.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        musicItem: item,
-        status: 'pending',
-        progress: 0,
-        fileName: makeSafeDownloadName(item.artist, item.title),
-        convertAacToMp3,
-        saveToNas: nasSaveSupported && saveToNasEnabled,
-        startTime: Date.now()
-      };
-    });
+    const newTasks: DownloadTask[] = items.map((item) => ({
+      ...createTask(item),
+      id: `${item.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    }));
 
-    // 2. Add to state
     setDownloadTasks(prev => [...newTasks, ...prev]);
     setIsDrawerOpen(true);
     setDownloadingCount(items.length);
 
-    // 3. Process with concurrency limit
     const CONCURRENCY_LIMIT = 3;
     const queue = [...newTasks];
     const activePromises: Promise<void>[] = [];
@@ -488,6 +695,30 @@ export default function Home() {
     setDownloadingCount(0);
   };
 
+  const requestDownloadOne = async (item: MusicItem) => {
+    if (openQualityModal([item], "single")) return;
+    await startSingleDownload(item);
+  };
+
+  const handleBatchDownload = async () => {
+    const items = results.filter(r => selectedIds.has(r.id));
+    if (items.length === 0) return;
+    if (openQualityModal(items, "batch")) return;
+    await startBatchDownload(items);
+  };
+
+  const confirmQualityDownload = async () => {
+    if (!qualityModal) return;
+    const items = qualityModal.items.map((item) => applyQualityChoice(item, selectedQualityValue));
+    const mode = qualityModal.mode;
+    setQualityModal(null);
+    if (mode === "single") {
+      await startSingleDownload(items[0]);
+      return;
+    }
+    await startBatchDownload(items);
+  };
+
   const currentIndex = activeMusic ? results.findIndex(r => r.id === activeMusic.id) : -1;
   const getNextIndex = () => {
     if (!activeMusic) return -1;
@@ -503,6 +734,7 @@ export default function Home() {
     }
     return -1;
   };
+  getNextIndexRef.current = getNextIndex;
 
   const getPrevIndex = () => {
     if (!activeMusic) return -1;
@@ -548,7 +780,7 @@ export default function Home() {
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
     const handleLoadedMetadata = () => {
       setDuration(audio.duration);
-      if (playing) audio.play().catch(() => setPlaying(false));
+
     };
     const handleEnded = () => {
       if (playMode === "single") {
@@ -556,89 +788,56 @@ export default function Home() {
           audioRef.current.currentTime = 0;
           audioRef.current.play()
             .then(() => setPlaying(true))
-            .catch(() => setPlaying(false));
+            .catch((error) => { setPlaying(false); notifyError(error, "播放失败", "playback"); });
         }
         return;
       }
-      const nextIndex = getNextIndex();
+      const nextIndex = getNextIndexRef.current();
       if (nextIndex >= 0) {
-        handlePlay(results[nextIndex]);
+        handlePlayRef.current(results[nextIndex]);
       } else {
         setPlaying(false);
       }
     };
 
+    const handleError = () => {
+      setPlaying(false);
+      setResolvingMusicId(null);
+      setActiveMusic(null);
+      void message.error({ key: 'playback', content: '音频无法加载或格式不受支持，请重试或切换渠道', duration: 6 });
+    };
+    audio.addEventListener('error', handleError);
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
+      audio.removeEventListener('error', handleError);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [playing, playMode, results, activeMusic, shuffleIndex, shuffleOrder, getNextIndex, handlePlay]);
+  }, [playing, playMode, results]);
 
   return (
-    <main className="min-h-[calc(100vh-64px)] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-sky-100 dark:selection:bg-sky-900 pb-32 transition-colors duration-300">
-      <div className="container mx-auto px-4 py-12 flex flex-col items-center">
-
-        {/* Header Area */}
+    <main className="min-h-[calc(100vh-64px)] bg-[#fcf9f8] text-[#1b1b1c] selection:bg-[#d3e3ff] selection:text-[#001c39] pb-36 transition-colors duration-300 dark:bg-[#111315] dark:text-[#f3f0ef]">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col items-center px-4 py-10 md:px-12">
         <motion.div
           layout
           className={cn(
-            "flex flex-col items-center justify-center transition-all duration-500 w-full",
-            searched ? "mt-0 mb-8" : "mt-[10vh] mb-12"
+            "flex w-full flex-col items-center justify-center transition-all duration-500",
+            searched ? "mt-0 mb-8" : "min-h-[calc(100vh-220px)]"
           )}
         >
-          <div className="flex items-center gap-3 mb-4">
-             <span className="px-3 py-1 rounded-full bg-sky-100 dark:bg-sky-900 text-sky-600 dark:text-sky-300 text-xs font-bold tracking-wider uppercase">
-               v2.0 Beta
-             </span>
+          <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-[28px] bg-[#d3e3ff] text-[#005faa] shadow-[0_8px_24px_rgba(0,0,0,0.04)] dark:bg-[#003f6d] dark:text-[#a3c9ff]">
+            <Music className="h-12 w-12" />
           </div>
-          <h1 className="text-4xl md:text-6xl font-bold text-slate-800 dark:text-slate-100 tracking-tight mb-4 text-center">
+          <h1 className="mb-2 text-center text-[28px] font-bold leading-9 tracking-normal text-[#1b1b1c] md:text-[32px] md:leading-10 dark:text-[#f3f0ef]">
             COCO音乐下载站
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-lg mb-8 max-w-lg text-center leading-relaxed hidden md:block">
-            您的专属高品质音乐获取助手，支持多平台搜索，
-            <br />
-            极速解析，批量下载，纯净无广。
+          <p className="mb-8 text-center text-base leading-6 text-[#404752] dark:text-[#c6c6c7]">
+            搜索、播放与下载依赖第三方渠道的稳定性，不保证持续有效；失败时请重试或切换渠道。
           </p>
-
-          {/* Provider Selector */}
-          <div className="flex items-center gap-2 mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-             <Music className="w-4 h-4" />
-             <span>选择搜索来源:</span>
-          </div>
-          <div className="flex justify-center mb-6 gap-3 flex-wrap">
-            {[
-              { id: 'gequbao', name: '歌曲宝' },
-              { id: 'gequhai', name: '歌曲海' },
-              { id: 'bugu', name: '布谷' },
-              { id: 'qq', name: 'QQ音乐' },
-              { id: 'qqmp3', name: 'QQMP3' },
-              { id: 'migu', name: '咪咕' },
-              { id: 'livepoo', name: '力音' },
-              { id: 'jianbin-netease', name: '煎饼-网易' },
-              { id: 'jianbin-qq', name: '煎饼-qq' },
-              { id: 'jianbin-kugou', name: '煎饼-酷狗' },
-              { id: 'jianbin-kuwo', name: '煎饼-酷我' }
-            ].map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setProvider(p.id)}
-                className={cn(
-                  "px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer",
-                  provider === p.id
-                    ? "bg-sky-500 text-white shadow-lg shadow-sky-200 dark:shadow-none ring-2 ring-sky-200 dark:ring-sky-800 ring-offset-2 dark:ring-offset-slate-900"
-                    : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800 hover:border-sky-200 dark:hover:border-sky-700"
-                )}
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
 
           {downloadEnabled ? (
             <div className="mb-6 flex flex-col items-center gap-2">
@@ -704,100 +903,106 @@ export default function Home() {
             </div>
           ) : null}
 
-          {/* Search Bar */}
-          <form onSubmit={handleSearch} className="relative w-full max-w-2xl group mb-6">
-            <div className="absolute inset-0 bg-sky-200 dark:bg-sky-900 rounded-full blur-xl opacity-30 group-hover:opacity-50 transition-opacity duration-300"></div>
-            <div className="relative bg-white dark:bg-slate-900 shadow-xl shadow-slate-200/50 dark:shadow-none rounded-full flex items-center p-2 pr-2 border border-slate-100 dark:border-slate-800 transition-transform duration-300 hover:scale-[1.01]">
-              <Search className="w-6 h-6 text-slate-400 dark:text-slate-500 ml-4" />
+          <form onSubmit={handleSearch} className="w-full max-w-2xl rounded-2xl border border-[#e5e2e1]/70 bg-[#f6f3f2] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.04)] transition-all duration-300 focus-within:border-[#005faa]/30 focus-within:shadow-[0_12px_32px_rgba(0,0,0,0.08)] dark:border-white/10 dark:bg-[#242526]">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-[168px] flex-shrink-0">
+                <button
+                  type="button"
+                  aria-label="渠道选择"
+                  aria-haspopup="listbox"
+                  aria-expanded={providerMenuOpen}
+                  onClick={() => setProviderMenuOpen((open) => !open)}
+                  className={cn(
+                    "flex h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-xl border bg-white px-4 text-left text-sm font-medium text-[#1b1b1c] shadow-sm outline-none transition-all hover:bg-[#fcf9f8] focus:ring-4 focus:ring-[#005faa]/10 dark:bg-[#303030] dark:text-[#f3f0ef] dark:hover:bg-[#3a3b3c]",
+                    providerMenuOpen ? "border-[#005faa]/45 ring-4 ring-[#005faa]/10" : "border-white/80"
+                  )}
+                >
+                  <span className="truncate">{activeProviderName}</span>
+                  <ChevronDown className={cn("h-5 w-5 flex-shrink-0 text-[#404752] transition-transform", providerMenuOpen && "rotate-180 text-[#005faa]")} />
+                </button>
+                <AnimatePresence>
+                  {providerMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                      transition={{ duration: 0.14 }}
+                      role="listbox"
+                      className="absolute left-0 top-[calc(100%+8px)] z-30 max-h-72 w-64 overflow-y-auto rounded-xl border border-[#c0c7d4]/45 bg-white p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#303030]"
+                    >
+                      {PROVIDER_OPTIONS.map((option) => {
+                        const selected = option.id === provider;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              setProvider(option.id);
+                              setProviderMenuOpen(false);
+                            }}
+                            className={cn(
+                              "flex h-9 w-full cursor-pointer items-center justify-between rounded-lg px-3 text-sm transition-colors",
+                              selected
+                                ? "bg-[#d3e3ff] font-semibold text-[#005faa]"
+                                : "text-[#1b1b1c] hover:bg-[#f0eded] dark:text-[#f3f0ef] dark:hover:bg-white/10"
+                            )}
+                          >
+                            <span>{option.name}</span>
+                            {selected && <Check className="h-4 w-4" />}
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="hidden h-8 w-px bg-[#c0c7d4]/40 sm:block" />
+              <div className="relative flex min-w-0 flex-1 items-center">
+                <Search className="absolute left-3 h-5 w-5 text-[#404752] dark:text-[#c6c6c7]" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索歌曲、歌手..."
-                className="flex-1 bg-transparent border-none outline-none px-4 text-lg text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600 h-12"
+                  placeholder="输入歌曲名、歌手或专辑..."
+                  className="h-12 w-full rounded-xl border-none bg-transparent py-3 pl-10 pr-28 text-base leading-6 text-[#1b1b1c] outline-none placeholder:text-[#404752]/60 focus:ring-0 dark:text-[#f3f0ef] dark:placeholder:text-[#c6c6c7]/60"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-sky-500 hover:bg-sky-600 text-white rounded-full px-8 h-12 font-medium transition-all active:scale-95 disabled:opacity-70 flex items-center gap-2 cursor-pointer"
+                  className="absolute bottom-1 right-1 top-1 flex cursor-pointer items-center gap-1 rounded-lg bg-[#005faa] px-4 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#0078d4] active:scale-95 disabled:cursor-wait disabled:opacity-70"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "搜索"}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>搜索</span>}
+                  {!loading && <ArrowRight className="h-4 w-4" />}
               </button>
+              </div>
             </div>
           </form>
 
-          {/* Hot Tags */}
           <AnimatePresence>
             {!searched && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex flex-wrap justify-center gap-3 text-sm text-slate-500 dark:text-slate-400"
+                className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs font-medium text-[#404752] dark:text-[#c6c6c7]"
               >
-                <div className="flex items-center gap-1 text-slate-400 dark:text-slate-500">
-                  <Flame className="w-4 h-4 text-orange-500" />
-                  <span>热门搜索:</span>
-                </div>
-                {["周杰伦", "林俊杰", "抖音热歌", "陈奕迅", "古典音乐"].map((tag) => (
-                  <span
+                <span className="mr-1">热门推荐:</span>
+                {["周杰伦", "林俊杰", "陈奕迅", "孙燕姿"].map((tag) => (
+                  <button
                     key={tag}
                     onClick={() => setQuery(tag)}
-                    className="px-3 py-1 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-full cursor-pointer hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-600 dark:hover:text-sky-400 hover:border-sky-100 dark:hover:border-sky-900 transition-colors shadow-sm dark:shadow-none"
+                    className="cursor-pointer rounded-full border border-[#c0c7d4]/30 bg-[#f0eded] px-3 py-1.5 text-[#1b1b1c] transition-colors hover:bg-[#eae7e7] dark:border-white/10 dark:bg-[#242526] dark:text-[#f3f0ef] dark:hover:bg-[#303030]"
                   >
                     {tag}
-                  </span>
+                  </button>
                 ))}
               </motion.div>
             )}
           </AnimatePresence>
         </motion.div>
-
-        {/* Features Grid - Only show when not searched */}
-        <AnimatePresence>
-            {!searched && results.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ delay: 0.1 }}
-                className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full mt-8"
-              >
-                 {[
-                   { icon: Headphones, title: "全网聚合", desc: "支持主流音乐平台搜索，海量曲库一网打尽" },
-                   { icon: Zap, title: "极速解析", desc: "毫秒级解析响应，多线程并发下载，拒绝等待" },
-                   { icon: ShieldCheck, title: "纯净无广", desc: "无任何广告干扰，还原最纯粹的音乐体验" }
-                 ].map((feature, i) => (
-                   <div key={i} className="bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm border border-slate-100 dark:border-slate-800 p-6 rounded-2xl flex flex-col items-center text-center hover:bg-white dark:hover:bg-slate-900 hover:shadow-lg hover:shadow-slate-100/50 dark:hover:shadow-none transition-all duration-300 group cursor-default">
-                     <div className="w-12 h-12 bg-sky-50 dark:bg-slate-800 rounded-xl flex items-center justify-center text-sky-500 dark:text-sky-400 mb-4 group-hover:scale-110 transition-transform duration-300">
-                       <feature.icon className="w-6 h-6" />
-                     </div>
-                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">{feature.title}</h3>
-                     <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">{feature.desc}</p>
-                   </div>
-                 ))}
-              </motion.div>
-            )}
-        </AnimatePresence>
-
-        {/* Footer Info - Only show when not searched */}
-        <AnimatePresence>
-          {!searched && results.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.2 }}
-              className="mt-16 text-center text-slate-400 dark:text-slate-500 text-sm"
-            >
-              <p>© 2024 COCO Music. Powered by Next.js & React.</p>
-              <p className="mt-2 text-xs text-slate-300 dark:text-slate-600">仅供个人学习交流使用，请勿用于商业用途</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Results List */}
-        <div className="w-full max-w-4xl mx-auto flex-1">
+        <div className="mx-auto w-full max-w-[1160px] flex-1">
           <AnimatePresence mode="wait">
             {loading ? (
               <motion.div
@@ -805,10 +1010,10 @@ export default function Home() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500"
+                className="flex flex-col items-center justify-center py-20 text-[#404752] dark:text-[#c6c6c7]"
               >
-                <Loader2 className="w-10 h-10 animate-spin mb-4 text-sky-400" />
-                <p>正在寻找动听旋律...</p>
+                <Loader2 className="mb-4 h-10 w-10 animate-spin text-[#005faa]" />
+                <p>正在搜索歌曲...</p>
               </motion.div>
             ) : results.length > 0 ? (
               <motion.div
@@ -816,13 +1021,23 @@ export default function Home() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden mb-24"
+                className="mb-24"
               >
-                {/* List Header */}
+                <div className="mb-6">
+                  <div>
+                    <h2 className="text-[28px] font-bold leading-9 text-[#1b1b1c] md:text-[32px] md:leading-10 dark:text-[#f3f0ef]">搜索结果</h2>
+                    <p className="mt-1 text-sm leading-5 text-[#404752] dark:text-[#c6c6c7]">
+                      找到 {results.length} 首相关歌曲
+                    </p>
+                  </div>
+                </div>
+
                 <div
                   className={cn(
-                    "grid gap-4 p-4 border-b border-slate-50 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400",
-                    listGridTemplate
+                    "mb-2 hidden gap-4 border-b border-[#c0c7d4]/30 px-4 py-2 text-xs font-medium text-[#404752] md:grid dark:text-[#c6c6c7]",
+                    downloadEnabled
+                      ? "grid-cols-[40px_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_120px]"
+                      : "grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_80px]"
                   )}
                 >
                   {downloadEnabled ? (
@@ -832,8 +1047,8 @@ export default function Home() {
                         className={cn(
                           "w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer",
                           selectedIds.size === results.length && results.length > 0
-                            ? "bg-sky-500 border-sky-500 text-white"
-                            : "border-slate-300 dark:border-slate-600 hover:border-sky-400 dark:hover:border-sky-500"
+                            ? "bg-[#005faa] border-[#005faa] text-white"
+                            : "border-[#c0c7d4] bg-white hover:border-[#005faa] dark:bg-[#242526]"
                         )}
                       >
                         {selectedIds.size === results.length && results.length > 0 && <Check className="w-3.5 h-3.5" />}
@@ -842,11 +1057,11 @@ export default function Home() {
                   ) : null}
                   <div>歌曲</div>
                   <div className="hidden md:block">歌手</div>
-                  <div className="text-right pr-4 md:pr-4">操作</div>
+                  <div className="hidden md:block">专辑</div>
+                  <div className="text-right">操作</div>
                 </div>
 
-                {/* List Items */}
-                <div className="divide-y divide-slate-50 dark:divide-slate-800">
+                <div className="flex flex-col gap-2">
                   {results.map((item) => {
                     const isActive = activeMusic?.id === item.id;
                     const isSelected = selectedIds.has(item.id);
@@ -858,9 +1073,11 @@ export default function Home() {
                         animate={{ opacity: 1 }}
                         onDoubleClick={() => handlePlay(item)}
                         className={cn(
-                          "grid gap-4 p-4 items-center hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all duration-200 group cursor-pointer select-none active:scale-[0.99] rounded-xl",
-                          listGridTemplate,
-                          isActive && "bg-sky-50/50 dark:bg-sky-900/20"
+                          "group flex cursor-pointer select-none items-center gap-3 overflow-hidden rounded-xl border border-[#c0c7d4]/20 bg-white p-3 shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all duration-300 hover:bg-[#fcf9f8] hover:shadow-md active:scale-[0.99] md:grid md:gap-4 md:p-5 dark:border-white/10 dark:bg-[#242526] dark:hover:bg-[#303030]",
+                          downloadEnabled
+                            ? "md:grid-cols-[40px_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_120px]"
+                            : "md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_80px]",
+                          isActive && "border-[#005faa]/30 bg-[#d3e3ff]/35"
                         )}
                       >
                         {downloadEnabled ? (
@@ -870,8 +1087,8 @@ export default function Home() {
                               className={cn(
                                 "w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer",
                                 isSelected
-                                  ? "bg-sky-500 border-sky-500 text-white"
-                                  : "border-slate-300 dark:border-slate-600 hover:border-sky-400 dark:hover:border-sky-500"
+                                  ? "bg-[#005faa] border-[#005faa] text-white"
+                                  : "border-[#c0c7d4] bg-white hover:border-[#005faa] dark:bg-[#242526]"
                               )}
                             >
                               {isSelected && <Check className="w-3.5 h-3.5" />}
@@ -879,10 +1096,10 @@ export default function Home() {
                           </div>
                         ) : null}
 
-                        <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden md:flex-none">
                           <div
                             onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
-                            className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0 cursor-pointer relative group/cover"
+                            className="group/cover relative h-12 w-12 flex-shrink-0 cursor-pointer overflow-hidden rounded-lg bg-[#f0eded] transition-transform duration-300 group-hover:scale-105 group-hover:shadow-lg md:h-14 md:w-14 dark:bg-[#303030]"
                           >
                             {item.cover ? (
                               <Image
@@ -894,7 +1111,7 @@ export default function Home() {
                                 unoptimized
                               />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-500">
+                              <div className="flex h-full w-full items-center justify-center text-[#404752]">
                                 <Music className="w-5 h-5" />
                               </div>
                             )}
@@ -902,7 +1119,9 @@ export default function Home() {
                               "absolute inset-0 bg-black/20 flex items-center justify-center transition-opacity",
                               isActive ? "opacity-100" : "opacity-0 group-hover/cover:opacity-100"
                             )}>
-                              {isActive && playing ? (
+                              {resolvingMusicId === item.id ? (
+                                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                              ) : isActive && playing ? (
                                 <Pause className="w-4 h-4 text-white fill-current" />
                               ) : (
                                 <Play className="w-4 h-4 text-white fill-current" />
@@ -911,27 +1130,44 @@ export default function Home() {
                           </div>
                           <div className="flex flex-col min-w-0 overflow-hidden">
                             <span className={cn(
-                              "font-medium truncate",
-                              isActive ? "text-sky-600 dark:text-sky-400" : "text-slate-700 dark:text-slate-200"
+                              "truncate text-base font-bold leading-6",
+                              isActive ? "text-[#005faa] dark:text-[#a3c9ff]" : "text-[#1b1b1c] dark:text-[#f3f0ef]"
                             )}>
                               {item.title}
                             </span>
-                            <span className="text-xs text-slate-400 dark:text-slate-500 truncate md:hidden block mt-0.5">
-                              {item.artist}
+                            <span className="mt-0.5 block truncate text-sm text-[#404752] md:hidden dark:text-[#c6c6c7]">
+                              {item.artist}{item.album ? ` · ${item.album}` : ""}
                             </span>
                           </div>
                         </div>
 
-                        <div className="text-slate-500 dark:text-slate-400 truncate text-sm hidden md:block">
-                          {item.artist}
+                        <div className="hidden truncate text-sm text-[#404752] md:block dark:text-[#c6c6c7]">
+                          <div className="truncate">{item.artist}</div>
                         </div>
 
-                        <div className="flex justify-end pr-2 md:pr-2 gap-2">
+                        <div className="hidden truncate text-sm text-[#404752] md:block dark:text-[#c6c6c7]">
+                          {item.album || "-"}
+                        </div>
+
+                        <div className="ml-auto flex justify-end gap-1 pl-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 md:ml-0 md:gap-2 md:pl-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
+                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa] dark:text-[#c6c6c7] dark:hover:text-[#a3c9ff]"
+                            title={isActive && playing ? "暂停" : "播放"}
+                          >
+                            {resolvingMusicId === item.id ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : isActive && playing ? (
+                              <Pause className="h-5 w-5 fill-current" />
+                            ) : (
+                              <Play className="h-5 w-5 fill-current" />
+                            )}
+                          </button>
                           <SourceLinkButton item={item} />
                           {downloadEnabled ? (
                             <button
-                              onClick={(e) => { e.stopPropagation(); downloadOne(item); }}
-                              className="p-2 text-slate-400 dark:text-slate-500 hover:text-sky-500 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+                              onClick={(e) => { e.stopPropagation(); requestDownloadOne(item); }}
+                              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-[#005faa] text-white shadow-sm transition-all hover:bg-[#0078d4] hover:shadow-md active:scale-95"
                               title="下载"
                             >
                               <Download className="w-5 h-5" />
@@ -942,12 +1178,25 @@ export default function Home() {
                     );
                   })}
                 </div>
+                {hasMoreResults ? (
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[#c0c7d4]/40 bg-white px-5 py-2.5 text-sm font-medium text-[#1b1b1c] shadow-sm transition-colors hover:border-[#005faa]/30 hover:bg-[#d3e3ff]/35 disabled:cursor-wait disabled:opacity-70 dark:border-white/10 dark:bg-[#242526] dark:text-[#f3f0ef] dark:hover:bg-[#303030]"
+                    >
+                      {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {loadingMore ? "加载中..." : "加载更多"}
+                    </button>
+                  </div>
+                ) : null}
               </motion.div>
             ) : searched ? (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="text-center py-20 text-slate-400 dark:text-slate-500"
+                className="py-20 text-center text-[#404752] dark:text-[#c6c6c7]"
               >
                 <p>未找到相关歌曲，换个关键词试试？</p>
               </motion.div>
@@ -959,12 +1208,40 @@ export default function Home() {
       {downloadEnabled ? (
         <DownloadDrawer
           isOpen={isDrawerOpen}
+          onOpen={() => setIsDrawerOpen(true)}
           onClose={() => setIsDrawerOpen(false)}
           tasks={downloadTasks}
           onRemoveTask={(taskId) => setDownloadTasks(prev => prev.filter(t => t.id !== taskId))}
           onClearCompleted={() => setDownloadTasks(prev => prev.filter(t => t.status === 'downloading' || t.status === 'pending'))}
         />
       ) : null}
+
+      <QualitySelectModal
+        isOpen={Boolean(qualityModal)}
+        title={
+          qualityModal?.optionKind === "downloadSource"
+            ? qualityModal?.mode === "batch"
+              ? "选择批量下载线路"
+              : "选择下载线路"
+            : qualityModal?.mode === "batch"
+              ? "选择批量下载音质"
+              : "选择下载音质"
+        }
+        description={
+          qualityModal?.optionKind === "downloadSource"
+            ? qualityModal?.mode === "batch"
+              ? `本次会把所选线路应用到 ${qualityModal?.qualityItemCount || 0} 首支持线路选择的曲目。`
+              : "请选择本次下载使用的解析线路。"
+            : qualityModal?.mode === "batch"
+              ? `本次会把所选音质应用到 ${qualityModal?.qualityItemCount || 0} 首支持音质选择的曲目。`
+              : "请选择本次下载使用的音质。"
+        }
+        options={qualityModal ? collectQualityOptions(getQualityItems(qualityModal.items)) : []}
+        value={selectedQualityValue}
+        onChange={setSelectedQualityValue}
+        onClose={() => setQualityModal(null)}
+        onConfirm={confirmQualityDownload}
+      />
 
       {/* Floating Download Toggle Button (Bottom Right) */}
       <AnimatePresence>
@@ -974,7 +1251,7 @@ export default function Home() {
             animate={{ scale: 1 }}
             exit={{ scale: 0 }}
             onClick={() => setIsDrawerOpen(true)}
-            className="fixed bottom-6 right-6 z-60 w-14 h-14 bg-sky-500 hover:bg-sky-600 text-white rounded-full shadow-lg shadow-sky-500/30 flex items-center justify-center transition-all active:scale-95 group"
+            className="group fixed bottom-6 right-6 z-60 flex h-14 w-14 items-center justify-center rounded-full bg-[#005faa] text-white shadow-lg shadow-[#005faa]/25 transition-all hover:bg-[#0078d4] active:scale-95"
           >
             <div className="relative">
                <Download className="w-6 h-6" />
@@ -985,8 +1262,7 @@ export default function Home() {
                  </span>
                )}
             </div>
-            {/* Tooltip */}
-            <span className="absolute right-full mr-4 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+            <span className="absolute right-full mr-4 whitespace-nowrap rounded bg-[#303030] px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
               查看下载任务
             </span>
           </motion.button>
@@ -1000,19 +1276,19 @@ export default function Home() {
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-24 left-0 right-0 flex justify-center z-40 pointer-events-none"
+            className="pointer-events-none fixed bottom-24 left-0 right-0 z-40 flex justify-center"
           >
-            <div className="bg-white dark:bg-slate-900 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 rounded-full px-6 py-3 flex items-center gap-6 pointer-events-auto">
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                已选择 <span className="text-sky-600 dark:text-sky-400 font-bold">{selectedIds.size}</span> 首歌曲
+            <div className="pointer-events-auto flex items-center gap-6 rounded-full bg-[#303030]/95 px-6 py-3 text-[#f3f0ef] shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl">
+              <span className="text-sm font-medium">
+                已选择 <span className="font-bold text-[#a3c9ff]">{selectedIds.size}</span> 首歌曲
               </span>
 
-              <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
+              <div className="h-5 w-px bg-[#c0c7d4]/30"></div>
 
               <button
                 onClick={handleBatchDownload}
                 disabled={downloadingCount > 0}
-                className="flex items-center gap-2 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium text-sm transition-colors disabled:opacity-50 cursor-pointer"
+                className="flex cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
               >
                 {downloadingCount > 0 ? (
                   <>
@@ -1029,7 +1305,8 @@ export default function Home() {
 
               <button
                 onClick={() => setSelectedIds(new Set())}
-                className="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
+                className="cursor-pointer rounded-full p-1.5 text-[#f3f0ef]/75 transition-colors hover:bg-white/10 hover:text-[#ffdad6]"
+                title="取消选择"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -1044,15 +1321,8 @@ export default function Home() {
           <PlayerBar
             currentMusic={activeMusic}
             isPlaying={playing}
-            onPlayPause={() => {
-              if (playing) {
-                audioRef.current?.pause();
-                setPlaying(false);
-              } else {
-                audioRef.current?.play();
-                setPlaying(true);
-              }
-            }}
+            isResolving={resolvingMusicId === activeMusic.id}
+            onPlayPause={() => { void handlePlay(activeMusic); }}
             onNext={canNext ? handleNext : undefined}
             onPrev={canPrev ? handlePrev : undefined}
             playMode={playMode}
@@ -1062,9 +1332,26 @@ export default function Home() {
             onSeek={handleSeek}
             volume={volume}
             onVolumeChange={setVolume}
+            onOpenPlayer={openPlayerDrawer}
           />
         )}
       </AnimatePresence>
+
+      <FullscreenPlayerDrawer
+        key={`${activeMusic?.id || "empty"}-${playerDrawerSession}`}
+        isOpen={playerDrawerOpen}
+        music={activeMusic}
+        isPlaying={playing}
+        lyrics={lyricLines}
+        lyricLoading={lyricLoading}
+        currentTime={currentTime}
+        duration={duration}
+        onClose={() => setPlayerDrawerOpen(false)}
+        onPlayPause={() => { if (activeMusic) void handlePlay(activeMusic); }}
+        onPrev={canPrev ? handlePrev : undefined}
+        onNext={canNext ? handleNext : undefined}
+        onSeek={handleSeek}
+      />
     </main>
   );
 }

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Coffee } from 'lucide-react';
+import { X, Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DonationModalProps {

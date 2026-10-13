@@ -120,7 +120,7 @@ export class LivepooProvider implements MusicProvider {
       }));
     } catch (error) {
       console.error('Livepoo search error:', error);
-      return [];
+      throw error;
     }
   }
 

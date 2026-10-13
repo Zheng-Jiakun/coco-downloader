@@ -1,18 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { ErrorNotifications } from "@/components/ErrorNotifications";
 
 export const metadata: Metadata = {
   title: "COCO音乐下载站",
@@ -50,9 +40,7 @@ export default function RootLayout({
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 dark:bg-slate-950 transition-colors duration-300`}
-      >
+      <body className="antialiased bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -73,6 +61,7 @@ export default function RootLayout({
             <Navbar />
           </div>
           <div className="min-h-screen">{children}</div>
+          <ErrorNotifications />
         </ThemeProvider>
       </body>
     </html>

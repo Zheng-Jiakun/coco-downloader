@@ -1,0 +1,17 @@
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+#downloadView {
+    background-color: transparent;
+}
+
+#emptyStatusWidget {
+    background-color: rgba(255, 255, 255, 200);
+    border-radius: 10px;
+}
+
+#emptyStatusWidget CaptionLabel {
+    color: rgb(96, 96, 96);
+}

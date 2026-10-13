@@ -1,119 +1,131 @@
-# COCO Downloader (COCO音乐下载站)
+<div align="center">
+  <img src="desktop/app/resource/images/logo/CocoDownloader.png" alt="CoCo Downloader Logo" width="112" height="112" />
+  <h1>CoCo Downloader</h1>
+  <p>一个覆盖 Web 与桌面端的音乐搜索、播放和下载项目。</p>
+</div>
 
-![Next.js](https://img.shields.io/badge/Next.js-16.1-black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.0-38B2AC)
+<div align="center">
+
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![React](https://img.shields.io/badge/React-19-149eca)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![PyQt5](https://img.shields.io/badge/PyQt5-Desktop-41cd52)
+![QFluentWidgets](https://img.shields.io/badge/QFluentWidgets-UI-0078d4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Docker](https://img.shields.io/badge/Docker-Supported-2496ED)
 
-## 📖 简介
+</div>
 
-**COCO音乐下载站** 是一个基于 Next.js 16 构建的现代化音乐搜索与下载平台。界面设计简约纯净，支持多渠道音乐搜索、在线试听、批量下载，并配备了丝滑的暗黑模式（涟漪过渡动画）。
+## 项目定位
 
-本项目致力于提供无广告、极速、纯净的音乐获取体验。
+CoCo Downloader 不是单一页面应用，而是一组围绕“音乐检索与获取体验”组织的 Web 与桌面客户端实现。
 
-## ✨ 主要特性
+仓库当前包含两条主线：
 
-- 🎵 **多源聚合搜索**：支持全网聚合搜索，内置多种音乐源渠道，一键切换。
-- 🎧 **在线试听**：内置精美悬浮播放器，支持播放/暂停、进度拖拽、音量调节、上下曲切换、**播放模式切换（顺序/随机/单曲）**。
-- 🖱️ **便捷交互**：支持列表**双击播放**，鼠标悬停/选中效果优化，操作流畅。
-- ⬇️ **批量下载**：支持多选歌曲，一键批量打包下载选中的音乐。
-- 🔄 **AAC 自动转 MP3**：提供默认开启的开关，记住浏览器中的选择；支持浏览器下载、NAS 保存和批量下载，按实际编码识别 AAC（包括 M4A 容器中的 AAC），其他编码不转码。
-- 🌓 **极致主题体验**：
-    - 完美适配**深色/浅色模式**。
-    - 独家定制的**涟漪扩散**切换动画（基于 View Transitions API），视觉效果惊艳。
-- ⚡ **现代化技术栈**：基于 React 19、Next.js 16 App Router、Tailwind CSS v4 构建。
+- `src/`：主 Web 应用，提供音乐搜索、在线试听、批量下载、播放栏和主题体验。
+- `desktop/`：PyQt5 桌面端，提供原生窗口、搜索列表、播放栏、下载任务管理和本地配置能力。
 
-## 🎹 支持音源与音质说明
+Web 端适合浏览器和 Docker 部署；桌面端适合打包成 Windows 安装包或便携版。
 
-本项目聚合了多个第三方音乐搜索引擎，支持以下音源：
+## 功能概览
 
-- **歌曲宝**
-- **歌曲海**
-- **布谷**
-- **QQ音乐**
-- **QQMP3**
-- **咪咕**
-- **力音**
-- **煎饼系列**（网易/QQ/酷狗/酷我聚合）
+### Web 应用
 
-> **⚠️ 关于音质的重要说明：**
-> 1. **不支持自定义音质选择**：本程序自动解析目标源提供的默认最高可用音质。
-> 2. **无损音质支持**：部分音源（如咪咕、QQMP3等）在资源允许的情况下会自动解析出 **FLAC** 无损格式，请自行探索尝试。
-> 3. **解析策略**：程序会自动尝试获取最佳播放链接，若某个源无法播放，建议切换其他源重试。
+- 多音源聚合搜索
+- 在线播放与底部播放器
+- 播放、暂停、上一曲、下一曲、进度拖动、音量控制和播放模式切换
+- 批量下载与下载抽屉
+- NAS 保存：将歌曲、标签与歌词写入挂载的音乐库
+- AAC 自动转 MP3：默认开启并记住选择，兼容浏览器下载、NAS 保存和批量任务，非 AAC 编码保持不变
+- JOOX 音质选择弹窗
+- 深色 / 浅色 / 跟随系统主题切换，支持涟漪过渡
+- 基于 Next.js App Router 的 API Routes
 
-## 🛠 技术栈
+### 桌面端
 
-- **核心框架**: [Next.js 16.1.2](https://nextjs.org/) (App Router)
-- **编程语言**: [TypeScript](https://www.typescriptlang.org/)
-- **样式方案**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **动画库**: [Framer Motion](https://www.framer.com/motion/)
-- **图标库**: [Lucide React](https://lucide.dev/)
-- **主题管理**: [next-themes](https://github.com/pacocoursey/next-themes) + View Transitions API
-- **后端处理**: Next.js API Routes + Axios + Cheerio
+`desktop/` 是 PyQt5 桌面客户端，核心体验更接近本地音乐工具。
 
-## 🚀 快速开始
+主要能力：
 
-### 环境要求
+- 搜索音乐并展示结果列表
+- 播放、暂停、上一曲、下一曲、播放模式切换
+- 播放进度拖动与音量控制
+- 单曲下载与下载任务展示
+- 下载目录和文件命名规则配置
+- 浅色 / 深色 / 跟随系统主题
+- 用户配置保存到系统 AppData 目录
+- 支持 Nuitka 打包和 Inno Setup 安装包制作
 
-- Node.js >= 18.17.0
-- npm / pnpm / yarn
-- 使用 AAC 自动转 MP3 时，服务器需安装 `ffmpeg`（支持 `libmp3lame`）和 `ffprobe`，并加入 `PATH`。项目 Docker 镜像已通过 `ffmpeg` 软件包包含二者。
+## 架构解析
 
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/markcxx/coco-downloader.git
-cd coco-downloader
+```text
+coco-downloader/
+├─ src/                         # 主 Web 应用
+│  ├─ app/                      # Next.js App Router 页面与 API Routes
+│  │  ├─ api/download/          # 下载接口
+│  │  ├─ api/search/            # 搜索接口
+│  │  └─ api/url/               # 播放直链接口
+│  ├─ components/               # Web UI 组件
+│  ├─ lib/providers/            # 音源 provider 策略实现
+│  └─ types/                    # TypeScript 类型
+├─ desktop/                     # PyQt5 桌面端
+│  ├─ CoCo-downloader.py        # 桌面端入口
+│  ├─ app/common/               # 配置、资源、信号总线和样式管理
+│  ├─ app/components/           # 播放栏、搜索卡片、下载任务卡片等复用组件
+│  ├─ app/services/             # 搜索、下载、播放和 provider 服务
+│  ├─ app/view/                 # 主窗口、首页、下载页、设置页
+│  └─ app/resource/             # qrc、qss、图片、翻译资源
+├─ Dockerfile
+├─ docker-compose.yml
+└─ package.json
 ```
 
-### 2. 安装依赖
+### Web 端分层
+
+Web 主应用把“页面交互”和“音源解析”拆开：
+
+- `src/app/page.tsx` 负责组织首页体验。
+- `src/components/PlayerBar.tsx`、`DownloadDrawer.tsx`、`QualitySelectModal.tsx` 等组件承载交互界面。
+- `src/app/api/*` 是浏览器调用的服务入口。
+- `src/lib/providers/impl/*` 是各个音源的实际解析实现。
+
+这种结构让前端不直接关心每个音源的细节。新增音源时，优先在 `providers` 层补实现，再在统一入口注册。
+
+### 桌面端分层
+
+桌面端按 Qt 应用常见边界拆分：
+
+- `view/`：页面和窗口，如主窗口、首页、下载页、设置页。
+- `components/`：可复用 UI 组件，如播放栏、搜索卡片、下载任务卡片。
+- `services/`：业务服务，如搜索服务、下载服务、播放服务。
+- `services/providers/`：不同音源 provider。
+- `common/`：配置、资源、样式、信号总线等基础设施。
+- `models/`：音乐数据模型。
+
+配置文件通过 `QStandardPaths.AppDataLocation` 写入用户级 AppData 目录，避免打包后写入安装目录。
+
+## 快速开始
+
+### Web 主应用
+
+使用 Node.js 20.9 或更新版本。使用 AAC 自动转 MP3 时，服务器需安装 `ffmpeg`（支持 `libmp3lame`）和 `ffprobe` 并加入 `PATH`；本仓库构建的 Docker 镜像已包含二者。
 
 ```bash
 npm install
-# 或者
-yarn install
-# 或者
-pnpm install
-```
-
-### 3. 运行开发服务器
-
-```bash
 npm run dev
 ```
 
-打开浏览器访问 [http://localhost:3000](http://localhost:3000) 即可开始使用。
+默认访问：
 
-### 4. 构建生产版本
+```text
+http://localhost:3000
+```
+
+生产构建：
 
 ```bash
 npm run build
-npm start
+npm run start
 ```
-
-## 📂 项目结构
-
-```
-coco-downloader/
-├── src/
-│   ├── app/                 # Next.js App Router 核心目录
-│   │   ├── api/             # 后端 API 路由 (search, url, download)
-│   │   ├── globals.css      # 全局样式 (含 Tailwind v4 配置)
-│   │   ├── layout.tsx       # 根布局 (集成 ThemeProvider)
-│   │   └── page.tsx         # 首页主要逻辑 (搜索、列表、交互)
-│   ├── components/          # UI 组件
-│   │   ├── Navbar.tsx       # 顶部导航栏 (含涟漪主题切换逻辑)
-│   │   ├── PlayerBar.tsx    # 底部悬浮播放器
-│   │   └── ThemeProvider.tsx# 主题上下文提供者
-│   ├── lib/                 # 工具库
-│   │   └── providers/       # 音乐源策略模式实现 (impl/gequbao.ts, impl/qqmp3.ts)
-│   └── types/               # TypeScript 类型定义
-├── public/                  # 静态资源文件
-└── ...
-```
-
-## 🎨 特色功能实现解析
 
 ### AAC 自动转 MP3
 
@@ -123,7 +135,7 @@ coco-downloader/
 
 NAS 模式仍会尝试写入歌曲信息、封面和歌词；转码失败会明确显示错误，不会把 AAC 仅改名为 MP3，也不会以失败结果覆盖已有歌曲。可检查服务端依赖，或关闭转换后重试。
 
-API 的 GET 查询参数或 POST JSON 支持 `convertAacToMp3`（GET 为 `true`/`false` 或 `1`/`0`，POST 为布尔值）。省略此参数保留原有不转码行为；`saveToNas=false` 可在已配置 NAS 的情况下选择浏览器下载。
+API 的 GET 查询参数或 POST JSON 支持 `convertAacToMp3`（GET 为 `true`/`false` 或 `1`/`0`，POST 为布尔值）。省略此参数保留原有不转码行为；`saveToNas=false` 可在已配置 NAS 的情况下选择浏览器下载。渠道所需的 `extra`（例如音质或会话信息）同样支持两种方式：GET 传 JSON 字符串，POST 传 JSON 对象，浏览器下载和 NAS 保存均会透传。
 
 回归测试使用本地生成的测试音频，无需访问音乐源；运行前安装依赖、`ffmpeg` 和 `ffprobe`，并使用 Node.js 20 或更新版本：
 
@@ -138,32 +150,9 @@ npm run test:download
 ### 音乐源扩展
 项目后端采用策略模式设计。在 `src/lib/providers` 下定义了统一的接口。若需添加新的音乐网站源，只需新建一个实现类并在工厂方法中注册即可，无需大幅修改前端逻辑。
 
-## 🚀 部署方案
+### Docker
 
-### 方案一：本地部署
-
-```bash
-npm run build
-npm start
-```
-
-### 方案二：Docker 部署
-
-本项目支持 Docker 快速部署，且支持自定义端口。
-
-1. **拉取镜像**
-   ```bash
-   docker pull markcxx/coco-downloader:latest
-   ```
-
-2. **运行容器**
-   ```bash
-   # 默认运行在 3000 端口
-   docker run -d -p 3000:3000 --name coco-downloader markcxx/coco-downloader:latest
-
-   # 自定义端口 (例如 8080)
-   docker run -d -p 8080:3000 -e PORT=3000 --name coco-downloader markcxx/coco-downloader:latest
-   ```
+本地定制功能（NAS 保存、AAC 转 MP3）需要从本仓库源码构建；上游发布的镜像不包含这些改动。
 
 #### 使用 Docker Compose 从源码构建
 
@@ -183,7 +172,7 @@ docker compose up -d --build
 
 版本控制保留 [Dockerfile](./Dockerfile)、[docker-compose.yml](./docker-compose.yml)、[.dockerignore](./.dockerignore) 和 [.env.example](./.env.example)。本机 `.env`、Compose override 配置和默认 `music/` 运行数据已同时排除在 Git 提交及 Docker 构建上下文之外。自定义音乐库建议使用仓库外路径；若放在仓库内的其他目录，需同步补充 [.gitignore](./.gitignore) 和 [.dockerignore](./.dockerignore)。
 
-### 方案三：NAS 落盘模式
+#### NAS 落盘模式
 
 如果你希望点击下载后直接保存到 NAS 挂载目录，并自动按歌手/专辑/歌曲命名，可以在容器里额外挂载一个音乐库目录，并设置环境变量：
 
@@ -194,30 +183,155 @@ docker run -d \
    -e SAVE_TO_NAS=1 \
    -v /volume1/music:/music \
    --name coco-downloader \
-   markcxx/coco-downloader:latest
+   coco-downloader:latest
 ```
 
-保存模式会优先写入 `MUSIC_LIBRARY_DIR`，目录结构默认是「歌手/专辑/歌手 - 歌名.扩展名」，并且会尽量写入：
+上述镜像需先通过 `docker compose build` 构建。保存模式会优先写入 `MUSIC_LIBRARY_DIR`，文件命名为「歌手 - 歌名.扩展名」，并且会尽量写入：
 
 - 歌词 `.lrc` 旁路文件
-- 封面 `cover.*` 旁路文件
-- 通过 ffmpeg 尽量写入音频标签，例如标题、歌手、专辑、专辑歌手
+- 通过 ffmpeg 尽量嵌入封面及音频标签，例如标题、歌手、专辑、专辑歌手
 
 Navidrome 直接扫描这个目录即可使用。
 
-## ⚠️ 免责声明
+### 桌面端
 
-1. 本项目仅供**个人学习与技术交流**使用，严禁用于任何商业用途。
-2. 本项目所有音乐资源均来源于互联网第三方网站，本项目仅提供数据聚合与检索服务，不存储任何音乐文件。
-3. 若您发现本项目侵犯了您的权益，请联系我们进行删除。
-4. 使用本项目产生的任何法律后果由使用者自行承担。
+建议使用 Python 3.12，并为桌面端单独创建虚拟环境。Windows PowerShell：
 
-## 🤝 贡献与反馈
+```powershell
+cd desktop
+uv venv .venv --python 3.12
+uv pip install --python .venv/Scripts/python.exe -r requirements-lock.txt
+.\.venv\Scripts\python.exe CoCo-downloader.py
+```
 
-如果您发现任何问题或有新功能建议，欢迎提交 Issue 或 Pull Request。
+已有上述环境时直接运行启动命令，无需重复创建；`.venv` 是 uv 管理的项目环境目录。
+`requirements.txt` 是直接依赖列表，`requirements-lock.txt` 记录本次 Windows Python 3.12 验证环境。
 
-仓库地址：[https://github.com/markcxx/coco-downloader](https://github.com/markcxx/coco-downloader)
+桌面回归测试（模拟网络响应，不下载第三方音乐）：
 
-## 📄 许可证
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-MIT License
+如果修改了 `resource.qrc`，需要重新生成 Qt 资源文件：
+
+```bash
+python -m PyQt5.pyrcc_main app/resource/resource.qrc -o app/common/resource.py
+```
+
+Windows 打包：
+
+```powershell
+cd desktop
+.\.venv\Scripts\python.exe deploy.py
+$env:APP_VERSION = '0.0.3'
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" CoCo-downloader.iss
+```
+
+Windows 编译使用本机 MSVC（Visual Studio C++ Build Tools），默认 4 个编译任务。
+Nuitka 生成 `desktop/build/CoCo-downloader.dist` 后，使用 Inno Setup 6.5 或更高版本编译安装脚本。
+安装工具：`winget install --id JRSoftware.InnoSetup -e --source winget`。
+打开下列 `.iss` 文件并点击 Compile，或使用安装目录中的 `ISCC.exe` 编译。
+
+安装包脚本位于：
+
+```text
+desktop/CoCo-downloader.iss
+```
+
+安装包输出到 `desktop/dist/`。简体中文语言文件随仓库提供，来源为
+[Inno Setup 6.7.3 官方仓库](https://github.com/jrsoftware/issrc/blob/is-6_7_3/Files/Languages/Unofficial/ChineseSimplified.isl)。
+
+## 音源说明
+
+### 桌面端渠道实测（2026-10-11）
+
+本次使用“晴天”和“稻香”分别搜索，每个渠道抽取前两条结果，校验音频文件头；
+另对每个有可用音频的渠道至少一首歌曲执行静音 Qt 播放，确认播放进度实际推进。
+这代表测试样本通过，不保证全部歌曲、全部音质或之后的服务可用性。
+
+| 状态 | 渠道 | 实测结果 |
+| --- | --- | --- |
+| 样本通过 | 云音乐、QQ、酷狗、歌曲海、波点、QQMP3、煎饼1–4 | 两个关键词均返回歌曲与有效音频；Qt 实播通过 |
+| 部分可用 | 咪咕 | 两个关键词的 Live 版本可用，原版仍返回服务错误；失败不再当作音频交给播放器 |
+| 未恢复 | 力音 | 官网对“晴天、稻香、周杰伦”均返回空结果，没有可验证的播放样本 |
+
+修复包括：煎饼访客会话初始化、波点主备解析、咪咕音频响应校验和音质回退、QQ 的 MP3 试听策略，以及 QQMP3 试听入口。
+0.0.3 同步修复 Web：歌曲海改用当前搜索入口并保留播放会话，QQMP3 校验音频后自动切换备用接口。
+桌面端使用 QFluentWidgets InfoBar 提示搜索、播放、下载和未捕获 Python 异常；Web 对应显示 Toast。
+两端首页均说明第三方渠道稳定性限制。桌面异常日志位于应用配置目录的 `app.log`。
+QQ 下载仍按高音质优先，试听使用 Qt5 可正常播放的 MP3 流。
+原始结果保存在 `desktop/diagnostics/provider-status-2026-10-11.json`。
+追加桌面复测见 `desktop/diagnostics/provider-followup-2026-10-11.json`；
+Web 实际音频与封面验证见 `desktop/diagnostics/web-provider-status-2026-10-11.json`。
+
+在 `desktop` 目录重新实测（会联网，静音播放片段）：
+
+```powershell
+.\.venv\Scripts\python.exe tools/probe_providers.py --playback
+```
+
+使用 `--query 稻香` 更换关键词，`--only qq bodian` 指定渠道，`--output build/results.json` 指定报告路径。
+
+项目内聚合了多个第三方音乐搜索与解析来源。当前代码中包含的 provider 主要包括：
+
+- 爱听
+- 波点音乐
+- 布谷音乐
+- 歌曲宝
+- 歌曲海
+- 煎饼音乐系列（支持多平台解析）
+- JOOX
+- 米兔音乐
+- LivePoo
+- 咪咕音乐
+- cenguigui解析（cenguigui API）
+- 海棠解析（haitang API）
+- XCVTS解析（xcvts/cyapi/vkeys API）
+- QQMP3
+
+不同音源的可用性、音质和返回字段会随第三方站点变化而变化。项目通过 provider 层隔离这些差异，尽量把上层 UI 和 API 保持稳定。
+
+## 技术栈
+
+### Web
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- Framer Motion / motion
+- Lucide React
+- Axios
+- Cheerio
+
+### Desktop
+
+- Python
+- PyQt5
+- PyQt-Fluent-Widgets
+- PyQt5-Frameless-Window
+- Nuitka
+- Inno Setup
+
+
+## 致谢
+
+桌面端界面基于 [QFluentWidgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets) 构建。QFluentWidgets 为 PyQt/PySide 提供了 Fluent Design 风格的组件、设置卡片、导航、主题和图标体系，让桌面端能够以较低成本获得现代化的 Windows 应用体验。
+
+感谢LINUXDO社区提供的帮助：https://linux.do/
+感谢开源项目musicdl的部分接口支持： https://github.com/CharlesPikachu/musicdl
+
+## 免责声明
+
+1. 本项目仅供个人学习、技术研究与交流使用，严禁用于商业用途。
+2. 项目不存储任何音乐文件，所有音乐内容均来自第三方公开API接口。
+3. 项目中使用的所有音源接口均为第三方服务提供。
+4. 第三方音源的可用性、数据准确性和版权状态不由本项目保证。
+6. 请勿将本项目用于任何违反当地法律法规的行为，请尊重音乐版权。
+7. 如本项目内容侵犯了您的权益，请通过 GitHub Issues 联系处理，我们会及时响应。
+8. **下载的音乐文件仅供个人学习研究使用，，请支持正版音乐。**
+
+## 许可证
+
+本项目使用 MIT License。

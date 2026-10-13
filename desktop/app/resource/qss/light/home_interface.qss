@@ -1,0 +1,36 @@
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+#scrollWidget {
+    background-color: transparent;
+}
+
+#resultTitleLabel {
+    color: black;
+    font-family: "Microsoft YaHei Light", "Segoe UI", "Microsoft YaHei";
+    font-size: 28px;
+    background-color: transparent;
+    padding-left: 6px;
+    padding-top: 4px;
+    padding-bottom: 2px;
+}
+
+/* Search Card */
+SearchCard #titleLabel {
+    color: black;
+}
+
+SearchCard #descLabel {
+    color: rgba(0, 0, 0, 140);
+}
+
+/* Placeholder Widget */
+PlaceholderWidget #titleLabel {
+    color: black;
+}
+
+PlaceholderWidget #descLabel {
+    color: rgba(0, 0, 0, 140);
+}

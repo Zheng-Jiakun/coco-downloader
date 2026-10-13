@@ -1,0 +1,73 @@
+name: Build Desktop Linux Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "desktop/**"
+      - ".github/workflows/build-desktop-linux.yml"
+
+jobs:
+  build-linux:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            patchelf \
+            libegl1 \
+            libgl1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: desktop/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Qt resources
+        run: python -m PyQt5.pyrcc_main app/resource/resource.qrc -o app/common/resource.py
+
+      - name: Build portable app with Nuitka
+        run: |
+          APP_VERSION=$(python3 -c "from app.common.setting import VERSION; print(VERSION.lstrip('vV'))")
+          echo "APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          python deploy.py
+          rm -rf "build/CoCo-downloader.build"
+
+      - name: Create archive
+        run: |
+          tar -C build -czf "CoCo-downloader-v${APP_VERSION}-Linux-x86_64.tar.gz" "CoCo-downloader.dist"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoCo-downloader-v${{ env.APP_VERSION }}-Linux-x86_64
+          path: desktop/CoCo-downloader-v${{ env.APP_VERSION }}-Linux-x86_64.tar.gz
+          if-no-files-found: error

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { MusicItem, MusicProvider, PlayInfo } from '@/types/music';
+import { validateAudioLink } from '../audio-link';
 
 const SEARCH_HEADERS = {
   'accept': 'application/json, text/plain, */*',
@@ -172,44 +173,47 @@ export class MiguProvider implements MusicProvider {
             album: album || undefined,
             cover,
             provider: this.name,
+            extra: { song: item },
           } as MusicItem;
         })
         .filter((item: MusicItem) => item.id);
     } catch (error) {
       console.error('Migu search error:', error);
-      return [];
+      throw error;
     }
   }
 
-  async getPlayInfo(id: string): Promise<PlayInfo> {
+  async getPlayInfo(id: string, extra?: unknown): Promise<PlayInfo> {
     try {
       const { contentId, copyrightId } = parseId(id);
       if (!contentId || !copyrightId) {
         throw new Error('Invalid id');
       }
-      const { data } = await axios.get<MiguSearchResponse>(buildSearchUrl(contentId, 1, 1), {
-        headers: SEARCH_HEADERS,
-        timeout: 15000,
-      });
-      const list = data?.songResultData?.result || [];
-      const song = list.find((item) => item?.contentId === contentId) || list[0];
+      const context = extra as { song?: MiguSong } | undefined;
+      let song = context?.song?.contentId === contentId ? context.song : undefined;
+      if (!song) {
+        const { data } = await axios.get<MiguSearchResponse>(buildSearchUrl(contentId, 1, 1), {
+          headers: SEARCH_HEADERS, timeout: 15000,
+        });
+        song = data?.songResultData?.result?.find((item) => item.contentId === contentId);
+      }
       if (!song) {
         throw new Error('Song not found');
       }
       const rateFormats: MiguRate[] = (song.rateFormats || []).concat(song.newRateFormats || []);
-      const sorted = rateFormats
+      const sorted = [...new Map(rateFormats.map(rate => [`${rate.formatType}:${rate.resourceType}`, rate])).values()]
         .filter((rate) => rate && rate.formatType && rate.resourceType)
         .sort((a, b) => parseSize(b.size ?? b.iosSize ?? b.androidSize) - parseSize(a.size ?? a.iosSize ?? a.androidSize));
       for (const rate of sorted) {
         try {
           const url = buildListenUrl(contentId, copyrightId, rate.resourceType as string, rate.formatType as string);
-          const response = await axios.get(url, { headers: SEARCH_HEADERS, timeout: 15000 });
+          const response = await axios.get(url, { headers: SEARCH_HEADERS, timeout: 15000 }).catch(() => ({ data: {} }));
           const info = response.data || {};
           const urlFromApi = info?.data?.url || fallbackUrl(contentId, copyrightId, rate.formatType as string, rate.resourceType as string);
           if (!urlFromApi) {
             continue;
           }
-          const fixedUrl = urlFromApi.replace(/(?<=\/)MP3_128_16_Stero(?=\/)/, 'MP3_320_16_Stero');
+          const { url: fixedUrl } = await validateAudioLink(urlFromApi);
           const type = MUSIC_QUALITIES[rate.formatType as string] || 'mp3';
           return {
             url: fixedUrl,
@@ -220,7 +224,7 @@ export class MiguProvider implements MusicProvider {
           continue;
         }
       }
-      throw new Error('Failed to get play url');
+      throw new Error('咪咕未返回可用音频，该歌曲可能暂不可用，请尝试其他歌曲或音源');
     } catch (error) {
       console.error('Migu getPlayInfo error:', error);
       throw error;

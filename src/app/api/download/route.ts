@@ -9,6 +9,7 @@ import { pipeline } from "stream/promises";
 import { getProvider } from "@/lib/providers";
 import { getMusicLibraryRoot, saveMusicToLibrary } from "@/lib/download";
 import { AudioConversionError, getAudioContentType, getAudioExtension, getDownloadFilename, prepareAudioFile } from "@/lib/audio";
+import { providerErrorMessage } from "@/lib/api-error";
 
 const DOWNLOAD_TIMEOUT = 30000;
 const RETRY_LIMIT = 2;
@@ -32,6 +33,15 @@ function isRetryableError(error: unknown) {
   );
 }
 
+function parseExtra(value: string | null) {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 async function requestAudioStream(url: string, attempt = 0) {
   try {
     const response = await axios.get(url, {
@@ -46,7 +56,13 @@ async function requestAudioStream(url: string, attempt = 0) {
     });
 
     if (response.status < 200 || response.status >= 300) {
+      response.data.destroy();
       throw new Error(`Upstream error: ${response.status}`);
+    }
+
+    if (/^(application\/json|text\/)/i.test(String(response.headers['content-type'] || ''))) {
+      response.data.destroy();
+      throw new Error('渠道未返回有效音频，请重试或切换渠道');
     }
 
     return { stream: response.data as Readable, headers: response.headers as Record<string, string | undefined> };
@@ -63,6 +79,7 @@ type DownloadPayload = {
   id?: string;
   filename?: string;
   provider?: string;
+  extra?: unknown;
   title?: string;
   artist?: string;
   album?: string;
@@ -84,6 +101,7 @@ async function readPayload(request: NextRequest): Promise<DownloadPayload> {
     id: searchParams.get("id") || undefined,
     filename: searchParams.get("filename") || undefined,
     provider: searchParams.get("provider") || undefined,
+    extra: parseExtra(searchParams.get("extra")),
     title: searchParams.get("title") || undefined,
     artist: searchParams.get("artist") || undefined,
     album: searchParams.get("album") || undefined,
@@ -118,7 +136,8 @@ async function handleDownload(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const id = payload.id || searchParams.get("id");
   const filename = payload.filename || searchParams.get("filename");
-  const providerName = payload.provider || searchParams.get("provider") || "gequbao";
+  const providerName = payload.provider || searchParams.get("provider") || "netease";
+  const extra = payload.extra;
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -127,12 +146,12 @@ async function handleDownload(request: NextRequest) {
   try {
     // 1. 获取真实播放地址
     const provider = getProvider(providerName);
-    const playInfo = await provider.getPlayInfo(id);
+    const playInfo = await provider.getPlayInfo(id, extra);
     if (!playInfo || !playInfo.url) {
       return NextResponse.json({ error: "Failed to get url" }, { status: 404 });
     }
 
-    const downloadEnabled = process.env.ENABLE_DOWNLOAD === "1";
+    const downloadEnabled = process.env.ENABLE_DOWNLOAD !== "0";
     if (!downloadEnabled) {
       return NextResponse.json(
         { error: "Download disabled", url: playInfo.url },
@@ -207,6 +226,9 @@ async function handleDownload(request: NextRequest) {
 
   } catch (error) {
     console.error("Download error:", error);
-    return NextResponse.json({ error: error instanceof AudioConversionError ? error.message : "Download failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: providerErrorMessage(error) },
+      { status: error instanceof AudioConversionError ? 500 : 502 },
+    );
   }
 }

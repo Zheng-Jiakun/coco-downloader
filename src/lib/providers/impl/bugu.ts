@@ -45,6 +45,13 @@ type BuguDetailResponse = {
   };
 };
 
+export type BuguLyricData = {
+  songid: string;
+  provider: 'bugu';
+  lines: Array<{ time: number; text: string }>;
+  lrc: string;
+};
+
 function normalizeDuration(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   const parts = String(value).match(/\d+/g) || [];
@@ -58,6 +65,48 @@ function normalizeDuration(value: unknown): string | undefined {
   const [hours, minutes, seconds] = lastThree;
   if (hours === 0 && minutes === 0 && seconds === 0) return undefined;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function cleanLyric(value: unknown) {
+  if (typeof value !== 'string') return '';
+  const lyric = decodeHtmlEntities(value)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return lyric && !lyric.includes('歌词获取失败') ? lyric : '';
+}
+
+function parseLyricLines(lyric: string) {
+  const lines: Array<{ time: number; text: string }> = [];
+  const timePattern = /\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]/g;
+
+  for (const rawLine of lyric.split(/\r?\n/)) {
+    const matches = [...rawLine.matchAll(timePattern)];
+    if (matches.length === 0) continue;
+
+    const text = rawLine.replace(timePattern, '').trim();
+    for (const match of matches) {
+      const minutes = Number(match[1]);
+      const seconds = Number(match[2]);
+      const fraction = match[3] ? Number(match[3].padEnd(3, '0').slice(0, 3)) / 1000 : 0;
+      lines.push({ time: minutes * 60 + seconds + fraction, text });
+    }
+  }
+
+  return lines
+    .filter((line) => line.text)
+    .sort((a, b) => a.time - b.time);
 }
 
 function extractExt(url: string) {
@@ -121,5 +170,22 @@ export class BuguProvider implements MusicProvider {
       console.error('Bugu getPlayInfo error:', error);
       throw error;
     }
+  }
+
+  async getLyric(id: string): Promise<BuguLyricData> {
+    const { data } = await axios.get<BuguDetailResponse>('https://a.buguyy.top/newapi/geturl2.php', {
+      headers: SEARCH_HEADERS,
+      params: { id },
+      timeout: REQUEST_TIMEOUT,
+      httpsAgent: HTTPS_AGENT,
+    });
+    const lrc = cleanLyric(data?.data?.lrc);
+
+    return {
+      songid: id,
+      provider: 'bugu',
+      lines: parseLyricLines(lrc),
+      lrc,
+    };
   }
 }
