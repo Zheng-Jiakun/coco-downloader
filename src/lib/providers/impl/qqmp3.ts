@@ -87,9 +87,10 @@ export class QQMp3Provider implements MusicProvider {
           url: data.data.url,
           type: 'mp3', // Default to mp3 as extension might not be in URL or tricky to parse
           cover: undefined, // Already have cover from search
+          lyrics: data.data.lrc || undefined,
         };
       }
-      
+
       throw new Error('Failed to get play info');
     } catch (error) {
       console.error('QQMp3 getPlayInfo error:', error);

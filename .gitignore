@@ -30,8 +30,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (commit only the shared template)
 .env*
+!.env.example
+
+# local Docker overrides and bind-mounted music library
+/docker-compose.override.yml
+/docker-compose.override.yaml
+/compose.override.yml
+/compose.override.yaml
+/music/
 
 # vercel
 .vercel

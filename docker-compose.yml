@@ -1,9 +1,18 @@
 services:
   coco-downloader:
-    image: markcxx/coco-downloader:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coco-downloader:latest
     container_name: coco-downloader
     restart: unless-stopped
     environment:
-      - PORT=${PORT:-3000}
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - ENABLE_DOWNLOAD=${ENABLE_DOWNLOAD:-1}
+      - SAVE_TO_NAS=${SAVE_TO_NAS:-1}
+      - MUSIC_LIBRARY_DIR=${MUSIC_LIBRARY_DIR:-/music}
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-3001}:3000"
+    volumes:
+      - "${MUSIC_LIBRARY_HOST_DIR:-./music}:${MUSIC_LIBRARY_DIR:-/music}:rw"

@@ -30,6 +30,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const downloadEnabled = process.env.ENABLE_DOWNLOAD !== "0";
+  const musicLibraryRoot =
+    process.env.MUSIC_LIBRARY_DIR?.trim() ||
+    process.env.NAS_MUSIC_DIR?.trim() ||
+    process.env.DOWNLOAD_TARGET_DIR?.trim() ||
+    "";
+  const saveToNasSupported = Boolean(musicLibraryRoot) && (process.env.SAVE_TO_NAS ?? "1") !== "0";
   const announcementEnabled =
     !downloadEnabled && (process.env.ANNOUNCEMENT_ENABLED ?? "1") === "1";
   const announcementText =
@@ -37,6 +43,7 @@ export default function RootLayout({
     "由于本站当前流量包达到上限，下载功能已临时关闭，将为你跳转到原链接。";
   const clientEnv = {
     ENABLE_DOWNLOAD: downloadEnabled ? "1" : "0",
+    SAVE_TO_NAS_SUPPORTED: saveToNasSupported ? "1" : "0",
     ANNOUNCEMENT_ENABLED: announcementEnabled ? "1" : "0",
     ANNOUNCEMENT_TEXT: announcementText,
   };

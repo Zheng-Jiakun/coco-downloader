@@ -17,7 +17,7 @@ const SourceLinkButton = ({ item }: { item: MusicItem }) => {
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (loading) return;
-    
+
     setLoading(true);
     try {
       const res = await fetch(`/api/url?id=${item.id}&provider=${item.provider || 'gequbao'}`);
@@ -53,7 +53,7 @@ export default function Home() {
   const [provider, setProvider] = useState("all");
   const [results, setResults] = useState<MusicItem[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   // Playback State
   const [activeMusic, setActiveMusic] = useState<MusicItem | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -68,11 +68,14 @@ export default function Home() {
   const [searched, setSearched] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingCount, setDownloadingCount] = useState(0);
-  
+
   // Download Manager State
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [downloadEnabled, setDownloadEnabled] = useState(true);
+  const [nasSaveSupported, setNasSaveSupported] = useState(false);
+  const [saveToNasEnabled, setSaveToNasEnabled] = useState(false);
+  const [convertAacToMp3, setConvertAacToMp3] = useState(true);
 
   const openSourceUrl = async (item: MusicItem) => {
     const res = await fetch(
@@ -98,12 +101,12 @@ export default function Home() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    
+
     setLoading(true);
     setSearched(true);
     setResults([]);
     setSelectedIds(new Set());
-    
+
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&provider=${provider}`);
       const data = await res.json();
@@ -164,7 +167,7 @@ export default function Home() {
       if (audioRef.current) {
         audioRef.current.pause();
       }
-      
+
       setActiveMusic(item);
       syncShuffleIndex(item.id);
       setPlaying(false); // Wait for load
@@ -172,13 +175,13 @@ export default function Home() {
 
       const res = await fetch(`/api/url?id=${item.id}&provider=${item.provider || 'gequbao'}`);
       const data = await res.json();
-      
+
       if (data.url && audioRef.current) {
         // 如果返回了封面，更新当前播放歌曲的封面
         if (data.cover) {
           setActiveMusic(prev => prev ? { ...prev, cover: data.cover } : item);
         }
-        
+
         audioRef.current.src = data.url;
         audioRef.current.load();
         audioRef.current.play()
@@ -247,13 +250,21 @@ export default function Home() {
   }, [volume]);
 
   useEffect(() => {
-    const env = (window as Window & { __COCO_ENV?: { ENABLE_DOWNLOAD?: string } }).__COCO_ENV;
+    const env = (window as Window & { __COCO_ENV?: { ENABLE_DOWNLOAD?: string; SAVE_TO_NAS_SUPPORTED?: string } }).__COCO_ENV;
     if (env?.ENABLE_DOWNLOAD === "0") {
       setDownloadEnabled(false);
       return;
     }
     if (env?.ENABLE_DOWNLOAD === "1") {
       setDownloadEnabled(true);
+    }
+    const saveToNasAvailable = env?.SAVE_TO_NAS_SUPPORTED === "1";
+    setNasSaveSupported(saveToNasAvailable);
+    setSaveToNasEnabled(saveToNasAvailable);
+    try {
+      setConvertAacToMp3(localStorage.getItem('coco:convertAacToMp3') !== '0');
+    } catch {
+      // Keep the default when browser storage is unavailable.
     }
   }, []);
 
@@ -264,7 +275,7 @@ export default function Home() {
   const executeDownload = async (task: DownloadTask) => {
     try {
       // Update status to downloading
-      setDownloadTasks(prev => prev.map(t => 
+      setDownloadTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, status: 'downloading' } : t
       ));
 
@@ -276,50 +287,112 @@ export default function Home() {
         return;
       }
 
+      if (task.saveToNas) {
+        const response = await axios.post(`/api/download`, {
+          id: task.musicItem.id,
+          provider: task.musicItem.provider || 'gequbao',
+          title: task.musicItem.title,
+          artist: task.musicItem.artist,
+          album: task.musicItem.album,
+          cover: task.musicItem.cover,
+          filename: task.fileName,
+          convertAacToMp3: task.convertAacToMp3,
+          saveToNas: true,
+        });
+
+        if (response.data?.ok && response.data?.saved?.audioPath) {
+          const fileName = response.data.saved.audioPath.split(/[\\/]/).pop() || task.fileName;
+          setDownloadTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, status: 'completed', progress: 100, fileName } : t
+          ));
+          return;
+        }
+
+        throw new Error('NAS save failed');
+      }
+
       const response = await axios.get(`/api/download`, {
         params: {
           id: task.musicItem.id,
           provider: task.musicItem.provider || 'gequbao',
-          filename: task.fileName
+          filename: task.fileName,
+          title: task.musicItem.title,
+          artist: task.musicItem.artist,
+          album: task.musicItem.album,
+          cover: task.musicItem.cover,
+          convertAacToMp3: task.convertAacToMp3,
+          saveToNas: false,
         },
         responseType: 'blob',
         onDownloadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percent = (progressEvent.loaded / progressEvent.total) * 100;
-            setDownloadTasks(prev => prev.map(t => 
+            setDownloadTasks(prev => prev.map(t =>
               t.id === task.id ? { ...t, progress: percent } : t
             ));
           }
         }
       });
 
-      // Handle completion
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const disposition = String(response.headers['content-disposition'] || '');
+      const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const fileName = encodedFilename ? decodeURIComponent(encodedFilename) : task.fileName;
+      const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = task.fileName;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      setDownloadTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t
+      setDownloadTasks(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'completed', progress: 100, fileName } : t
       ));
 
     } catch (err: unknown) {
       console.error(err);
-      const errorMessage = err instanceof Error ? err.message : 'Download failed';
-      setDownloadTasks(prev => prev.map(t => 
+      let errorMessage = err instanceof Error ? err.message : 'Download failed';
+      if (axios.isAxiosError(err)) {
+        try {
+          const data = err.response?.data instanceof Blob
+            ? JSON.parse(await err.response.data.text())
+            : err.response?.data;
+          if (typeof data?.error === 'string') errorMessage = data.error;
+        } catch {
+          // Retain the request error if the response is not JSON.
+        }
+      }
+      setDownloadTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, status: 'error', error: errorMessage } : t
       ));
     }
   };
 
+  const makeSafeDownloadName = (artist: string, title: string) => {
+    const cleanArtist = artist.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Artist';
+    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Unknown Title';
+    return `${cleanArtist} - ${cleanTitle}.mp3`;
+  };
+
+  const toggleNasSave = () => {
+    if (!nasSaveSupported) return;
+    setSaveToNasEnabled(prev => !prev);
+  };
+
+  const toggleAacConversion = () => {
+    const next = !convertAacToMp3;
+    setConvertAacToMp3(next);
+    try {
+      localStorage.setItem('coco:convertAacToMp3', next ? '1' : '0');
+    } catch {
+      // The toggle still works for this session without browser storage.
+    }
+  };
+
   const downloadOne = async (item: MusicItem) => {
     const taskId = `${item.id}-${Date.now()}`;
-    const cleanTitle = item.title.replace(/\s+/g, ' ').trim();
-    const filename = `${cleanTitle}.mp3`;
+    const filename = makeSafeDownloadName(item.artist, item.title);
 
     // Add initial task
     const newTask: DownloadTask = {
@@ -328,12 +401,14 @@ export default function Home() {
       status: 'pending',
       progress: 0,
       fileName: filename,
+      convertAacToMp3,
+      saveToNas: nasSaveSupported && saveToNasEnabled,
       startTime: Date.now()
     };
 
     setDownloadTasks(prev => [newTask, ...prev]);
     setIsDrawerOpen(true);
-    
+
     // Execute immediately for single download
     await executeDownload(newTask);
   };
@@ -359,20 +434,21 @@ export default function Home() {
   const handleBatchDownload = async () => {
     const items = results.filter(r => selectedIds.has(r.id));
     if (items.length === 0) return;
-    
+
     if (items.length > 5) {
       if (!confirm(`即将下载 ${items.length} 首歌曲，可能需要一些时间，是否继续？`)) return;
     }
 
     // 1. Create all tasks immediately
     const newTasks: DownloadTask[] = items.map(item => {
-      const cleanTitle = item.title.replace(/\s+/g, ' ').trim();
       return {
         id: `${item.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         musicItem: item,
         status: 'pending',
         progress: 0,
-        fileName: `${cleanTitle}.mp3`,
+        fileName: makeSafeDownloadName(item.artist, item.title),
+        convertAacToMp3,
+        saveToNas: nasSaveSupported && saveToNasEnabled,
         startTime: Date.now()
       };
     });
@@ -392,7 +468,7 @@ export default function Home() {
         if (activePromises.length >= CONCURRENCY_LIMIT) {
           await Promise.race(activePromises);
         }
-        
+
         const task = queue.shift();
         if (task) {
           const promise = executeDownload(task).then(() => {
@@ -506,9 +582,9 @@ export default function Home() {
   return (
     <main className="min-h-[calc(100vh-64px)] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-sky-100 dark:selection:bg-sky-900 pb-32 transition-colors duration-300">
       <div className="container mx-auto px-4 py-12 flex flex-col items-center">
-        
+
         {/* Header Area */}
-        <motion.div 
+        <motion.div
           layout
           className={cn(
             "flex flex-col items-center justify-center transition-all duration-500 w-full",
@@ -528,7 +604,7 @@ export default function Home() {
             <br />
             极速解析，批量下载，纯净无广。
           </p>
-          
+
           {/* Provider Selector */}
           <div className="flex items-center gap-2 mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
              <Music className="w-4 h-4" />
@@ -554,8 +630,8 @@ export default function Home() {
                 onClick={() => setProvider(p.id)}
                 className={cn(
                   "px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer",
-                  provider === p.id 
-                    ? "bg-sky-500 text-white shadow-lg shadow-sky-200 dark:shadow-none ring-2 ring-sky-200 dark:ring-sky-800 ring-offset-2 dark:ring-offset-slate-900" 
+                  provider === p.id
+                    ? "bg-sky-500 text-white shadow-lg shadow-sky-200 dark:shadow-none ring-2 ring-sky-200 dark:ring-sky-800 ring-offset-2 dark:ring-offset-slate-900"
                     : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800 hover:border-sky-200 dark:hover:border-sky-700"
                 )}
               >
@@ -563,7 +639,71 @@ export default function Home() {
               </button>
             ))}
           </div>
-          
+
+          {downloadEnabled ? (
+            <div className="mb-6 flex flex-col items-center gap-2">
+              <div className="flex items-center gap-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 px-4 py-2 shadow-sm backdrop-blur-sm">
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">NAS 保存</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={saveToNasEnabled}
+                  aria-label="切换 NAS 保存"
+                  onClick={toggleNasSave}
+                  disabled={!nasSaveSupported}
+                  className={cn(
+                    "relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-200",
+                    saveToNasEnabled && nasSaveSupported
+                      ? "bg-sky-500"
+                      : "bg-slate-300 dark:bg-slate-700",
+                    !nasSaveSupported && "cursor-not-allowed opacity-50"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-6 w-6 rounded-full bg-white shadow-sm transform transition-transform duration-200",
+                      saveToNasEnabled && nasSaveSupported ? "translate-x-7" : "translate-x-1"
+                    )}
+                  />
+                </button>
+                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                  {saveToNasEnabled && nasSaveSupported ? "写入 NAS" : "浏览器下载"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xl">
+                {nasSaveSupported
+                  ? "开启后会把下载结果直接保存到挂载目录，并按歌手/专辑/歌曲命名。"
+                  : "容器未配置 NAS 挂载目录，当前只能使用浏览器本地下载。"}
+              </p>
+              <div className="mt-2 flex items-center gap-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 px-4 py-2 shadow-sm">
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">AAC 自动转 MP3</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={convertAacToMp3}
+                  aria-label="切换 AAC 自动转 MP3"
+                  aria-describedby="aac-conversion-description"
+                  onClick={toggleAacConversion}
+                  className={cn(
+                    "relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-200 cursor-pointer",
+                    convertAacToMp3 ? "bg-sky-500" : "bg-slate-300 dark:bg-slate-700"
+                  )}
+                >
+                  <span className={cn(
+                    "inline-block h-6 w-6 rounded-full bg-white shadow-sm transform transition-transform duration-200",
+                    convertAacToMp3 ? "translate-x-7" : "translate-x-1"
+                  )} />
+                </button>
+                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                  {convertAacToMp3 ? "已开启" : "已关闭"}
+                </span>
+              </div>
+              <p id="aac-conversion-description" className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xl">
+                开启后检测实际音频编码，将 AAC（含 M4A 中的 AAC）转为 MP3，其他编码不转码；转换需要额外时间。
+              </p>
+            </div>
+          ) : null}
+
           {/* Search Bar */}
           <form onSubmit={handleSearch} className="relative w-full max-w-2xl group mb-6">
             <div className="absolute inset-0 bg-sky-200 dark:bg-sky-900 rounded-full blur-xl opacity-30 group-hover:opacity-50 transition-opacity duration-300"></div>
@@ -589,7 +729,7 @@ export default function Home() {
           {/* Hot Tags */}
           <AnimatePresence>
             {!searched && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, height: 0 }}
@@ -600,7 +740,7 @@ export default function Home() {
                   <span>热门搜索:</span>
                 </div>
                 {["周杰伦", "林俊杰", "抖音热歌", "陈奕迅", "古典音乐"].map((tag) => (
-                  <span 
+                  <span
                     key={tag}
                     onClick={() => setQuery(tag)}
                     className="px-3 py-1 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-full cursor-pointer hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-600 dark:hover:text-sky-400 hover:border-sky-100 dark:hover:border-sky-900 transition-colors shadow-sm dark:shadow-none"
@@ -660,7 +800,7 @@ export default function Home() {
         <div className="w-full max-w-4xl mx-auto flex-1">
           <AnimatePresence mode="wait">
             {loading ? (
-              <motion.div 
+              <motion.div
                 key="loading"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -671,7 +811,7 @@ export default function Home() {
                 <p>正在寻找动听旋律...</p>
               </motion.div>
             ) : results.length > 0 ? (
-              <motion.div 
+              <motion.div
                 key="results"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -687,12 +827,12 @@ export default function Home() {
                 >
                   {downloadEnabled ? (
                     <div className="flex justify-center items-center">
-                      <button 
+                      <button
                         onClick={toggleAll}
                         className={cn(
                           "w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer",
                           selectedIds.size === results.length && results.length > 0
-                            ? "bg-sky-500 border-sky-500 text-white" 
+                            ? "bg-sky-500 border-sky-500 text-white"
                             : "border-slate-300 dark:border-slate-600 hover:border-sky-400 dark:hover:border-sky-500"
                         )}
                       >
@@ -710,9 +850,9 @@ export default function Home() {
                   {results.map((item) => {
                     const isActive = activeMusic?.id === item.id;
                     const isSelected = selectedIds.has(item.id);
-                    
+
                     return (
-                      <motion.div 
+                      <motion.div
                         key={item.id}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -725,12 +865,12 @@ export default function Home() {
                       >
                         {downloadEnabled ? (
                           <div className="flex justify-center items-center">
-                            <button 
+                            <button
                               onClick={(e) => { e.stopPropagation(); toggleSelection(item.id); }}
                               className={cn(
                                 "w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer",
-                                isSelected 
-                                  ? "bg-sky-500 border-sky-500 text-white" 
+                                isSelected
+                                  ? "bg-sky-500 border-sky-500 text-white"
                                   : "border-slate-300 dark:border-slate-600 hover:border-sky-400 dark:hover:border-sky-500"
                               )}
                             >
@@ -740,7 +880,7 @@ export default function Home() {
                         ) : null}
 
                         <div className="flex items-center gap-3 overflow-hidden">
-                          <div 
+                          <div
                             onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
                             className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0 cursor-pointer relative group/cover"
                           >
@@ -834,7 +974,7 @@ export default function Home() {
             animate={{ scale: 1 }}
             exit={{ scale: 0 }}
             onClick={() => setIsDrawerOpen(true)}
-            className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-sky-500 hover:bg-sky-600 text-white rounded-full shadow-lg shadow-sky-500/30 flex items-center justify-center transition-all active:scale-95 group"
+            className="fixed bottom-6 right-6 z-60 w-14 h-14 bg-sky-500 hover:bg-sky-600 text-white rounded-full shadow-lg shadow-sky-500/30 flex items-center justify-center transition-all active:scale-95 group"
           >
             <div className="relative">
                <Download className="w-6 h-6" />
@@ -866,10 +1006,10 @@ export default function Home() {
               <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
                 已选择 <span className="text-sky-600 dark:text-sky-400 font-bold">{selectedIds.size}</span> 首歌曲
               </span>
-              
+
               <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
 
-              <button 
+              <button
                 onClick={handleBatchDownload}
                 disabled={downloadingCount > 0}
                 className="flex items-center gap-2 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium text-sm transition-colors disabled:opacity-50 cursor-pointer"
@@ -887,7 +1027,7 @@ export default function Home() {
                 )}
               </button>
 
-              <button 
+              <button
                 onClick={() => setSelectedIds(new Set())}
                 className="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
               >
@@ -901,7 +1041,7 @@ export default function Home() {
       {/* Player Bar */}
       <AnimatePresence>
         {activeMusic && (
-          <PlayerBar 
+          <PlayerBar
             currentMusic={activeMusic}
             isPlaying={playing}
             onPlayPause={() => {

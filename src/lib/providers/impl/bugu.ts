@@ -115,6 +115,7 @@ export class BuguProvider implements MusicProvider {
         url,
         type: extractExt(url),
         cover: typeof coverCandidate === 'string' ? coverCandidate : undefined,
+        lyrics: typeof data?.data?.lrc === 'string' && data.data.lrc.trim() ? data.data.lrc : undefined,
       };
     } catch (error) {
       console.error('Bugu getPlayInfo error:', error);

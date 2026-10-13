@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { Readable } from "stream";
+import { createReadStream, createWriteStream } from "fs";
+import { mkdtemp, rm, stat } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { pipeline } from "stream/promises";
 import { getProvider } from "@/lib/providers";
+import { getMusicLibraryRoot, saveMusicToLibrary } from "@/lib/download";
+import { AudioConversionError, getAudioContentType, getAudioExtension, getDownloadFilename, prepareAudioFile } from "@/lib/audio";
 
 const DOWNLOAD_TIMEOUT = 30000;
 const RETRY_LIMIT = 2;
 const RETRY_DELAY = 600;
+
+export const runtime = "nodejs";
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,8 +49,7 @@ async function requestAudioStream(url: string, attempt = 0) {
       throw new Error(`Upstream error: ${response.status}`);
     }
 
-    const stream = Readable.toWeb(response.data) as ReadableStream<Uint8Array>;
-    return { stream, headers: response.headers as Record<string, string | undefined> };
+    return { stream: response.data as Readable, headers: response.headers as Record<string, string | undefined> };
   } catch (error) {
     if (attempt < RETRY_LIMIT && isRetryableError(error)) {
       await delay(RETRY_DELAY * (attempt + 1));
@@ -51,11 +59,66 @@ async function requestAudioStream(url: string, attempt = 0) {
   }
 }
 
-export async function GET(request: NextRequest) {
+type DownloadPayload = {
+  id?: string;
+  filename?: string;
+  provider?: string;
+  title?: string;
+  artist?: string;
+  album?: string;
+  cover?: string;
+  lyrics?: string;
+  convertAacToMp3?: boolean;
+  saveToNas?: boolean;
+};
+
+function readBoolean(value: string | null) {
+  if (value === '1' || value === 'true') return true;
+  if (value === '0' || value === 'false') return false;
+  return undefined;
+}
+
+async function readPayload(request: NextRequest): Promise<DownloadPayload> {
   const searchParams = request.nextUrl.searchParams;
-  const id = searchParams.get("id");
-  const filename = searchParams.get("filename");
-  const providerName = searchParams.get("provider") || "gequbao";
+  const queryPayload: DownloadPayload = {
+    id: searchParams.get("id") || undefined,
+    filename: searchParams.get("filename") || undefined,
+    provider: searchParams.get("provider") || undefined,
+    title: searchParams.get("title") || undefined,
+    artist: searchParams.get("artist") || undefined,
+    album: searchParams.get("album") || undefined,
+    cover: searchParams.get("cover") || undefined,
+    lyrics: searchParams.get("lyrics") || undefined,
+    convertAacToMp3: readBoolean(searchParams.get("convertAacToMp3")),
+    saveToNas: readBoolean(searchParams.get("saveToNas")),
+  };
+
+  if (request.method !== "POST") {
+    return queryPayload;
+  }
+
+  try {
+    const body = (await request.json()) as Partial<DownloadPayload>;
+    return { ...queryPayload, ...body };
+  } catch {
+    return queryPayload;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return handleDownload(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handleDownload(request);
+}
+
+async function handleDownload(request: NextRequest) {
+  const payload = await readPayload(request);
+  const searchParams = request.nextUrl.searchParams;
+  const id = payload.id || searchParams.get("id");
+  const filename = payload.filename || searchParams.get("filename");
+  const providerName = payload.provider || searchParams.get("provider") || "gequbao";
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -77,35 +140,73 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 2. 请求音频流
-    // 使用原生 fetch 以获取标准的 ReadableStream，完美兼容 NextResponse
-    const { stream, headers: upstreamHeaders } = await requestAudioStream(playInfo.url);
+    const libraryRoot = getMusicLibraryRoot();
+    const saveToNasEnabled = Boolean(libraryRoot) && (process.env.SAVE_TO_NAS ?? "1") !== "0" && payload.saveToNas !== false;
 
-    // 3. 构建响应头
-    const headers = new Headers();
-    const contentType = upstreamHeaders["content-type"];
-    headers.set("Content-Type", contentType || "audio/mpeg");
+    if (saveToNasEnabled) {
+      const saved = await saveMusicToLibrary({
+        libraryRoot,
+        musicItem: {
+          id,
+          title: payload.title || filename || `music-${id}`,
+          artist: payload.artist || "未知歌手",
+          album: payload.album || undefined,
+          cover: payload.cover || playInfo.cover,
+          provider: providerName,
+        },
+        playInfo: {
+          ...playInfo,
+          cover: payload.cover || playInfo.cover,
+          lyrics: payload.lyrics || playInfo.lyrics,
+        },
+        sourceUrl: playInfo.url,
+        convertAacToMp3: payload.convertAacToMp3 === true,
+      });
 
-    const contentLength = upstreamHeaders["content-length"];
-    if (contentLength) {
-      headers.set("Content-Length", contentLength);
+      return NextResponse.json({ ok: true, saved });
     }
-    
-    // 设置下载文件名
-    const safeFilename = filename 
-      ? encodeURIComponent(filename).replace(/%20/g, '+')
-      : `music-${id}.mp3`;
-      
-    headers.set("Content-Disposition", `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`);
 
-    // 4. 返回流
-    return new NextResponse(stream, {
+    const { stream, headers: upstreamHeaders } = await requestAudioStream(playInfo.url);
+    let extension = getAudioExtension(playInfo, upstreamHeaders['content-type']);
+    let responseStream = stream;
+    let contentLength = upstreamHeaders['content-length'];
+
+    if (payload.convertAacToMp3 === true) {
+      let tempDir: string | undefined;
+      try {
+        tempDir = await mkdtemp(join(tmpdir(), 'coco-download-'));
+        const inputPath = join(tempDir, 'source');
+        await pipeline(stream, createWriteStream(inputPath));
+        const prepared = await prepareAudioFile(inputPath, extension, true);
+        extension = prepared.extension;
+        contentLength = String((await stat(prepared.audioPath)).size);
+        const fileStream = createReadStream(prepared.audioPath);
+        const completedTempDir = tempDir;
+        fileStream.once('close', () => {
+          void rm(completedTempDir, { recursive: true, force: true }).catch(() => undefined);
+        });
+        responseStream = fileStream;
+      } catch (error) {
+        stream.destroy();
+        if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+        throw error;
+      }
+    }
+
+    const headers = new Headers();
+    headers.set('Content-Type', getAudioContentType(extension));
+    if (contentLength) headers.set('Content-Length', contentLength);
+    const downloadFilename = getDownloadFilename(filename || `music-${id}`, extension);
+    const safeFilename = encodeURIComponent(downloadFilename).replace(/'/g, '%27');
+    headers.set('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`);
+
+    return new NextResponse(Readable.toWeb(responseStream) as ReadableStream<Uint8Array>, {
       status: 200,
       headers,
     });
 
   } catch (error) {
     console.error("Download error:", error);
-    return NextResponse.json({ error: "Download failed" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof AudioConversionError ? error.message : "Download failed" }, { status: 500 });
   }
 }

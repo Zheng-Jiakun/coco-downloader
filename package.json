@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:download": "node --require ./tests/register.cjs --test tests/download.test.cjs"
   },
   "dependencies": {
     "@lobehub/ui": "^4.20.1",
