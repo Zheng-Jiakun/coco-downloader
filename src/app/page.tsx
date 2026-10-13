@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { MusicItem } from "@/types/music";
 import { PlayerBar } from "@/components/PlayerBar";
+import { useDownloadSettings } from "@/components/DownloadSettingsProvider";
 import { DownloadDrawer } from "@/components/DownloadDrawer";
 import { QualitySelectModal } from "@/components/QualitySelectModal";
 import { FullscreenPlayerDrawer } from "@/components/FullscreenPlayerDrawer";
@@ -180,7 +181,8 @@ const SourceLinkButton = ({ item }: { item: MusicItem }) => {
   return (
     <button
       onClick={handleClick}
-      className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa]"
+      className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa] dark:text-[#c6c6c7] dark:hover:text-[#a3c9ff]"
+      aria-label="打开源文件链接"
       title="打开源文件链接"
     >
       {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ExternalLink className="w-5 h-5" />}
@@ -233,10 +235,7 @@ export default function Home() {
   // Download Manager State
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [downloadEnabled, setDownloadEnabled] = useState(true);
-  const [nasSaveSupported, setNasSaveSupported] = useState(false);
-  const [saveToNasEnabled, setSaveToNasEnabled] = useState(false);
-  const [convertAacToMp3, setConvertAacToMp3] = useState(true);
+  const { downloadEnabled, nasSaveSupported, saveToNasEnabled, convertAacToMp3 } = useDownloadSettings();
   const [resolvingMusicId, setResolvingMusicId] = useState<string | null>(null);
   const [qualityModal, setQualityModal] = useState<QualityModalState | null>(null);
   const [selectedQualityValue, setSelectedQualityValue] = useState("");
@@ -462,25 +461,6 @@ export default function Home() {
     };
   }, [activeMusic]);
 
-  useEffect(() => {
-    const env = (window as Window & { __COCO_ENV?: { ENABLE_DOWNLOAD?: string; SAVE_TO_NAS_SUPPORTED?: string } }).__COCO_ENV;
-    if (env?.ENABLE_DOWNLOAD === "0") {
-      setDownloadEnabled(false);
-      return;
-    }
-    if (env?.ENABLE_DOWNLOAD === "1") {
-      setDownloadEnabled(true);
-    }
-    const saveToNasAvailable = env?.SAVE_TO_NAS_SUPPORTED === "1";
-    setNasSaveSupported(saveToNasAvailable);
-    setSaveToNasEnabled(saveToNasAvailable);
-    try {
-      setConvertAacToMp3(localStorage.getItem('coco:convertAacToMp3') !== '0');
-    } catch {
-      // Keep the default when browser storage is unavailable.
-    }
-  }, []);
-
   const executeDownload = async (task: DownloadTask) => {
     try {
       // Update status to downloading
@@ -578,21 +558,6 @@ export default function Home() {
       setDownloadTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, status: 'error', error: errorMessage } : t
       ));
-    }
-  };
-
-  const toggleNasSave = () => {
-    if (!nasSaveSupported) return;
-    setSaveToNasEnabled(prev => !prev);
-  };
-
-  const toggleAacConversion = () => {
-    const next = !convertAacToMp3;
-    setConvertAacToMp3(next);
-    try {
-      localStorage.setItem('coco:convertAacToMp3', next ? '1' : '0');
-    } catch {
-      // The toggle still works for this session without browser storage.
     }
   };
 
@@ -838,70 +803,6 @@ export default function Home() {
           <p className="mb-8 text-center text-base leading-6 text-[#404752] dark:text-[#c6c6c7]">
             搜索、播放与下载依赖第三方渠道的稳定性，不保证持续有效；失败时请重试或切换渠道。
           </p>
-
-          {downloadEnabled ? (
-            <div className="mb-6 flex flex-col items-center gap-2">
-              <div className="flex items-center gap-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 px-4 py-2 shadow-sm backdrop-blur-sm">
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">NAS 保存</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={saveToNasEnabled}
-                  aria-label="切换 NAS 保存"
-                  onClick={toggleNasSave}
-                  disabled={!nasSaveSupported}
-                  className={cn(
-                    "relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-200",
-                    saveToNasEnabled && nasSaveSupported
-                      ? "bg-sky-500"
-                      : "bg-slate-300 dark:bg-slate-700",
-                    !nasSaveSupported && "cursor-not-allowed opacity-50"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-block h-6 w-6 rounded-full bg-white shadow-sm transform transition-transform duration-200",
-                      saveToNasEnabled && nasSaveSupported ? "translate-x-7" : "translate-x-1"
-                    )}
-                  />
-                </button>
-                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  {saveToNasEnabled && nasSaveSupported ? "写入 NAS" : "浏览器下载"}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xl">
-                {nasSaveSupported
-                  ? "开启后会把下载结果直接保存到挂载目录，并按歌手/专辑/歌曲命名。"
-                  : "容器未配置 NAS 挂载目录，当前只能使用浏览器本地下载。"}
-              </p>
-              <div className="mt-2 flex items-center gap-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 px-4 py-2 shadow-sm">
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">AAC 自动转 MP3</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={convertAacToMp3}
-                  aria-label="切换 AAC 自动转 MP3"
-                  aria-describedby="aac-conversion-description"
-                  onClick={toggleAacConversion}
-                  className={cn(
-                    "relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-200 cursor-pointer",
-                    convertAacToMp3 ? "bg-sky-500" : "bg-slate-300 dark:bg-slate-700"
-                  )}
-                >
-                  <span className={cn(
-                    "inline-block h-6 w-6 rounded-full bg-white shadow-sm transform transition-transform duration-200",
-                    convertAacToMp3 ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  {convertAacToMp3 ? "已开启" : "已关闭"}
-                </span>
-              </div>
-              <p id="aac-conversion-description" className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xl">
-                开启后检测实际音频编码，将 AAC（含 M4A 中的 AAC）转为 MP3，其他编码不转码；转换需要额外时间。
-              </p>
-            </div>
-          ) : null}
 
           <form onSubmit={handleSearch} className="w-full max-w-2xl rounded-2xl border border-[#e5e2e1]/70 bg-[#f6f3f2] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.04)] transition-all duration-300 focus-within:border-[#005faa]/30 focus-within:shadow-[0_12px_32px_rgba(0,0,0,0.08)] dark:border-white/10 dark:bg-[#242526]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1149,10 +1050,11 @@ export default function Home() {
                           {item.album || "-"}
                         </div>
 
-                        <div className="ml-auto flex justify-end gap-1 pl-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 md:ml-0 md:gap-2 md:pl-0">
+                        <div className="ml-auto flex shrink-0 justify-end gap-1 opacity-100 transition-opacity duration-200 md:ml-0 md:gap-2 [@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                           <button
                             onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa] dark:text-[#c6c6c7] dark:hover:text-[#a3c9ff]"
+                            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#404752] transition-colors hover:bg-[#005faa]/10 hover:text-[#005faa] dark:text-[#c6c6c7] dark:hover:text-[#a3c9ff]"
+                            aria-label={isActive && playing ? "暂停" : "播放"}
                             title={isActive && playing ? "暂停" : "播放"}
                           >
                             {resolvingMusicId === item.id ? (
@@ -1167,7 +1069,8 @@ export default function Home() {
                           {downloadEnabled ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); requestDownloadOne(item); }}
-                              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-[#005faa] text-white shadow-sm transition-all hover:bg-[#0078d4] hover:shadow-md active:scale-95"
+                              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#005faa] text-white shadow-sm transition-all hover:bg-[#0078d4] hover:shadow-md active:scale-95"
+                              aria-label="下载"
                               title="下载"
                             >
                               <Download className="w-5 h-5" />

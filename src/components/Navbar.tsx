@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Download, Github, Sun, Moon, Heart, ShieldCheck } from "lucide-react";
+import { Download, Github, Sun, Moon, Heart } from "lucide-react";
 import { useState, MouseEvent, useEffect } from "react";
 import { useTheme } from "next-themes";
 import DeveloperPanel from "./DeveloperPanel";
 import { DonationModal } from "./DonationModal";
+import { SettingsMenu } from "./SettingsMenu";
 
 export function Navbar() {
   const [showDevPanel, setShowDevPanel] = useState(false);
@@ -134,14 +135,7 @@ export function Navbar() {
               <Moon className="w-5 h-5" />
             )}
           </button>
-          <button
-            onClick={toggleAutoSystem}
-            className={"p-2 ml-1 rounded-full transition-all duration-300 cursor-pointer " + (autoSystem ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/10' : 'text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800')}
-            title={autoSystem ? '自动主题已开启' : '自动主题已关闭'}
-            aria-pressed={!autoSystem}
-          >
-            <ShieldCheck className={"w-5 h-5 " + (autoSystem ? 'text-sky-600' : '')} />
-          </button>
+          <SettingsMenu autoSystem={autoSystem} onToggleAutoSystem={toggleAutoSystem} />
         </div>
       </nav>
 
